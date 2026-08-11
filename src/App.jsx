@@ -1,6 +1,23 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
+import { initializeApp } from "firebase/app";
+import { getFirestore, collection, addDoc, getDocs, deleteDoc, doc, updateDoc } from "firebase/firestore";
 
-// ─── DATA CONFIG ────────────────────────────────────────────────────────────
+// ─── FIREBASE CONFIG ─────────────────────────────────────────────────────────
+
+const firebaseConfig = {
+  apiKey: "AIzaSyB22Jcrd7FVjaDAXvBF40s5TtGIrCDtuCk",
+  authDomain: "smrhc-stats.firebaseapp.com",
+  projectId: "smrhc-stats",
+  storageBucket: "smrhc-stats.firebasestorage.app",
+  messagingSenderId: "3330947459",
+  appId: "1:3330947459:web:512c978ad867586e4fdeb6",
+  measurementId: "G-5TJHH6ETHS"
+};
+
+const firebaseApp = initializeApp(firebaseConfig);
+const db = getFirestore(firebaseApp);
+
+// ─── DATA CONFIG ─────────────────────────────────────────────────────────────
 
 const ACCIONES = {
   Tackle:           { icon: "💪", resultados: ["Efectivo", "Fallido"] },
@@ -49,16 +66,13 @@ const initMatch = () => ({
 
 const calcPts = (p) => p.tries*5 + p.conversions*2 + p.penalties*3 + p.dropGoals*3;
 
-// ─── SUMMARY HELPERS ────────────────────────────────────────────────────────
+// ─── SUMMARY HELPERS ─────────────────────────────────────────────────────────
 
 function buildSummary(log, tiempo = null) {
   const rows = tiempo ? log.filter(e => e.tiempo === tiempo) : log;
   const count = (equipo, accion, resultado) =>
     rows.filter(e => e.equipo===equipo && e.accion===accion && (resultado ? e.resultado===resultado : true)).length;
-
-  const pct = (a, b) => {
-    const t = a + b; return t === 0 ? null : Math.round((a/t)*100);
-  };
+  const pct = (a, b) => { const t = a + b; return t === 0 ? null : Math.round((a/t)*100); };
 
   return [
     { label:"Line Ganados",      propio: count("Propio","Line","Ganado"),           rival: count("Rival","Line","Ganado"),           type:"pos" },
@@ -88,13 +102,40 @@ function buildSummary(log, tiempo = null) {
 const SECTIONS = ["Partido","Registro","Jugadores","Resumen"];
 
 export default function App() {
-  const [match, setMatch]             = useState(initMatch());
-  const [section, setSection]         = useState(0);
-  const [matches, setMatches]         = useState([]);
-  const [historyOpen, setHistoryOpen] = useState(false);
-  const [logForm, setLogForm]         = useState({ minuto:"", tiempo:"1T", equipo:"Propio", accion:"Tackle", resultado:"Efectivo", jugador:"", penalizacion:"", tarjeta:"", obs:"" });
-  const [selPlayer, setSelPlayer]     = useState(null);
-  const [resTab, setResTab]           = useState("total");
+  const [match, setMatch]               = useState(initMatch());
+  const [section, setSection]           = useState(0);
+  const [matches, setMatches]           = useState([]);
+  const [historyOpen, setHistoryOpen]   = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(null);
+  const [loading, setLoading]           = useState(true);
+  const [saving, setSaving]             = useState(false);
+  const [editingId, setEditingId]       = useState(null);
+  const [logForm, setLogForm]           = useState({ minuto:"", tiempo:"1T", equipo:"Propio", accion:"Tackle", resultado:"Efectivo", jugador:"", penalizacion:"", tarjeta:"", obs:"" });
+  const [selPlayer, setSelPlayer]       = useState(null);
+  const [resTab, setResTab]             = useState("total");
+  const [toast, setToast]               = useState(null);
+
+  const showToast = (msg, type="ok") => {
+    setToast({msg, type});
+    setTimeout(() => setToast(null), 2500);
+  };
+
+  // ── Cargar partidos de Firebase al iniciar ──
+  useEffect(() => {
+    const fetchMatches = async () => {
+      try {
+        const snapshot = await getDocs(collection(db, "partidos"));
+        const data = snapshot.docs.map(d => ({ ...d.data(), firebaseId: d.id }));
+        data.sort((a,b) => new Date(b.date) - new Date(a.date));
+        setMatches(data);
+      } catch(e) {
+        console.error(e);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchMatches();
+  }, []);
 
   const updateMatch  = (k,v) => setMatch(m => ({...m,[k]:v}));
   const updatePlayer = (id,k,v) => setMatch(m => ({...m, players: m.players.map(p => p.id===id ? {...p,[k]:v} : p)}));
@@ -110,48 +151,106 @@ export default function App() {
   };
   const removeLog = (id) => setMatch(m => ({...m, log: m.log.filter(e => e.id!==id)}));
 
+  // ── Guardar en Firebase ──
+  const saveMatch = async () => {
+    setSaving(true);
+    try {
+      const data = { ...match, savedAt: new Date().toLocaleString() };
+      if (editingId) {
+        await updateDoc(doc(db, "partidos", editingId), data);
+        setMatches(prev => prev.map(m => m.firebaseId === editingId ? { ...data, firebaseId: editingId } : m));
+        setEditingId(null);
+        showToast("✅ Partido actualizado");
+      } else {
+        const ref = await addDoc(collection(db, "partidos"), data);
+        setMatches(prev => [{ ...data, firebaseId: ref.id }, ...prev]);
+        showToast("✅ Partido guardado");
+      }
+      setMatch(initMatch());
+      setSection(0);
+    } catch(e) {
+      showToast("❌ Error al guardar", "error");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // ── Borrar de Firebase ──
+  const deleteMatch = async (firebaseId) => {
+    try {
+      await deleteDoc(doc(db, "partidos", firebaseId));
+      setMatches(prev => prev.filter(m => m.firebaseId !== firebaseId));
+      setConfirmDelete(null);
+      showToast("🗑 Partido borrado");
+    } catch(e) {
+      showToast("❌ Error al borrar", "error");
+    }
+  };
+
+  // ── Editar: cargar partido en el formulario ──
+  const editMatch = (m) => {
+    setMatch(m);
+    setEditingId(m.firebaseId);
+    setHistoryOpen(false);
+    setSection(0);
+    setSelPlayer(null);
+  };
+
   const summary       = useMemo(() => buildSummary(match.log),       [match.log]);
   const summary1T     = useMemo(() => buildSummary(match.log,"1T"),  [match.log]);
   const summary2T     = useMemo(() => buildSummary(match.log,"2T"),  [match.log]);
   const activeSummary = resTab==="1T" ? summary1T : resTab==="2T" ? summary2T : summary;
-
-  const saveMatch     = () => setMatches(prev => [...prev, {...match, savedAt: new Date().toLocaleString()}]);
   const selPlayerData = match.players.find(p => p.id === selPlayer);
 
   // ── HISTORY ──
   if (historyOpen) return (
     <div style={S.root}>
       <Header>
-        <button style={S.pill} onClick={() => setHistoryOpen(false)}>← Volver</button>
+        <button style={S.pill} onClick={() => { setHistoryOpen(false); setConfirmDelete(null); }}>← Volver</button>
       </Header>
       <div style={S.page}>
-        <div style={S.pageTitle}>Historial</div>
-        {matches.length === 0
-          ? <div style={S.empty}>No hay partidos guardados todavía.</div>
-          : matches.map((m,i) => (
-            <div key={i} style={S.histCard}>
-              <div style={S.histTop}>
-                <span style={S.histRival}>vs {m.rival||"Rival"}</span>
-                <span style={S.histDate}>{m.date}</span>
-              </div>
-              <div style={S.histScoreRow}>
-                <span style={S.histScore}>{m.score.us}</span>
-                <span style={S.histDash}>—</span>
-                <span style={S.histScore}>{m.score.them}</span>
-              </div>
-              <div style={S.histMeta}>{m.location}{m.competition ? ` · ${m.competition}`:""} · {m.log.length} acciones registradas</div>
+        <div style={S.pageTitle}>Historial ({matches.length} partidos)</div>
+        {loading && <div style={S.empty}>Cargando partidos...</div>}
+        {!loading && matches.length === 0 && <div style={S.empty}>No hay partidos guardados todavía.</div>}
+        {matches.map((m,i) => (
+          <div key={m.firebaseId||i} style={S.histCard}>
+            <div style={S.histTop}>
+              <span style={S.histRival}>vs {m.rival||"Rival"}</span>
+              <span style={S.histDate}>{m.date}</span>
             </div>
-          ))
-        }
+            <div style={S.histScoreRow}>
+              <span style={S.histScore}>{m.score?.us ?? 0}</span>
+              <span style={S.histDash}>—</span>
+              <span style={S.histScore}>{m.score?.them ?? 0}</span>
+            </div>
+            <div style={S.histMeta}>{m.location}{m.competition ? ` · ${m.competition}`:""} · {m.log?.length||0} acciones · {m.savedAt}</div>
+            {confirmDelete === m.firebaseId ? (
+              <div style={S.histConfirm}>
+                <span style={S.histConfirmText}>¿Seguro que querés borrar este partido?</span>
+                <div style={{display:"flex",gap:8,marginTop:8}}>
+                  <button style={S.histBtnDanger} onClick={() => deleteMatch(m.firebaseId)}>Sí, borrar</button>
+                  <button style={S.histBtnCancel} onClick={() => setConfirmDelete(null)}>Cancelar</button>
+                </div>
+              </div>
+            ) : (
+              <div style={S.histActions}>
+                <button style={S.histBtnEdit} onClick={() => editMatch(m)}>✏️ Editar</button>
+                <button style={S.histBtnDelete} onClick={() => setConfirmDelete(m.firebaseId)}>🗑 Borrar</button>
+              </div>
+            )}
+          </div>
+        ))}
       </div>
     </div>
   );
 
   return (
     <div style={S.root}>
+      {toast && <div style={{...S.toast, background: toast.type==="error"?"#4a1a1a":"#1a3a1a"}}>{toast.msg}</div>}
+
       <Header>
-        {matches.length > 0 && <button style={S.pill} onClick={() => setHistoryOpen(true)}>Historial ({matches.length})</button>}
-        <button style={S.pillGreen} onClick={() => { setMatch(initMatch()); setSection(0); setSelPlayer(null); }}>+ Nuevo</button>
+        <button style={S.pill} onClick={() => setHistoryOpen(true)}>Historial ({matches.length})</button>
+        <button style={S.pillGreen} onClick={() => { setMatch(initMatch()); setSection(0); setSelPlayer(null); setEditingId(null); }}>+ Nuevo</button>
       </Header>
 
       {/* SCOREBOARD */}
@@ -178,6 +277,8 @@ export default function App() {
           </div>
         </div>
       </div>
+
+      {editingId && <div style={S.editingBanner}>✏️ Estás editando un partido guardado — recordá guardar los cambios en Resumen</div>}
 
       {/* NAV */}
       <div style={S.nav}>
@@ -259,7 +360,6 @@ export default function App() {
               </div>
             </Field>
 
-            {/* Selector de jugador — obligatorio para Tackle, Error de manejo y Penal del equipo Propio */}
             {requiereJugador && (
               <Field label={<span>Jugador <span style={{color:"#ff6b6b"}}>*</span></span>}>
                 {match.players.filter(p => p.name).length === 0 ? (
@@ -305,7 +405,6 @@ export default function App() {
             </button>
           </div>
 
-          {/* Log list */}
           {match.log.length > 0 && (
             <div style={{marginTop:20}}>
               <div style={S.logHeader}>
@@ -444,7 +543,9 @@ export default function App() {
           </div>
 
           {match.notes && <div style={S.notesBox}><strong>Notas:</strong> {match.notes}</div>}
-          <button style={S.saveBtn} onClick={saveMatch}>💾 Guardar Partido</button>
+          <button style={{...S.saveBtn, opacity: saving?0.7:1}} onClick={saveMatch} disabled={saving}>
+            {saving ? "Guardando..." : editingId ? "💾 Guardar cambios" : "💾 Guardar Partido"}
+          </button>
         </div>
       )}
     </div>
@@ -521,7 +622,7 @@ function PlayerEditor({ p, update, onBack, onPrev, onNext }) {
 
 const S = {
   root: { minHeight:"100vh", background:"#0b0f0b", color:"#e8f0e8", fontFamily:"'Georgia', 'Times New Roman', serif" },
-
+  toast: { position:"fixed", top:16, left:"50%", transform:"translateX(-50%)", zIndex:999, padding:"12px 24px", borderRadius:10, fontSize:14, fontWeight:"bold", color:"#fff", boxShadow:"0 4px 20px rgba(0,0,0,0.5)" },
   header: { position:"fixed", top:0, left:0, right:0, zIndex:100, background:"rgba(11,15,11,0.97)", borderBottom:"1.5px solid #1e3a1e", backdropFilter:"blur(12px)" },
   headerInner: { maxWidth:860, margin:"0 auto", padding:"11px 16px", display:"flex", alignItems:"center", justifyContent:"space-between" },
   logo: { display:"flex", alignItems:"center", gap:8 },
@@ -529,7 +630,7 @@ const S = {
   logoAcc: { color:"#00e5a0" },
   pill: { background:"transparent", border:"1px solid #2a4a2a", color:"#aaa", borderRadius:20, padding:"5px 14px", cursor:"pointer", fontSize:12, fontFamily:"inherit" },
   pillGreen: { background:"#00e5a0", border:"none", color:"#0b0f0b", borderRadius:20, padding:"5px 14px", cursor:"pointer", fontWeight:"bold", fontSize:12, fontFamily:"inherit" },
-
+  editingBanner: { maxWidth:860, margin:"8px auto 0", padding:"8px 16px", background:"#1a2a0a", border:"1px solid #4a7a1a", borderRadius:8, fontSize:12, color:"#aadd44", textAlign:"center" },
   scoreboard: { maxWidth:860, margin:"72px auto 0", padding:"20px 16px 0", display:"flex", alignItems:"center", gap:8 },
   scoreTeam: { flex:1, display:"flex", flexDirection:"column", alignItems:"center", gap:8 },
   scoreLabel: { fontSize:11, color:"#6a8a6a", textTransform:"uppercase", letterSpacing:1.5, textAlign:"center" },
@@ -540,17 +641,13 @@ const S = {
   scoreVS: { fontSize:13, color:"#00e5a0", fontWeight:"bold", letterSpacing:3 },
   scoreInfo: { fontSize:11, color:"#4a6a4a" },
   scoreInfo2: { fontSize:12, color:"#7aaa7a", fontWeight:"bold" },
-
   nav: { maxWidth:860, margin:"16px auto 0", padding:"4px", display:"flex", gap:4, background:"#111811", borderRadius:12 },
   navBtn: { flex:1, padding:"9px 4px", background:"transparent", border:"none", color:"#6a8a6a", borderRadius:9, cursor:"pointer", fontFamily:"inherit", fontSize:12, transition:"all .15s" },
   navBtnActive: { background:"#00e5a0", color:"#0b0f0b", fontWeight:"bold" },
-
   page: { maxWidth:860, margin:"16px auto 40px", padding:"0 16px" },
   pageTitle: { fontSize:13, color:"#00e5a0", textTransform:"uppercase", letterSpacing:3, marginBottom:16, fontWeight:"bold" },
-
   grid2: { display:"grid", gridTemplateColumns:"1fr 1fr", gap:12 },
   input: { background:"#0d150d", border:"1px solid #1e3a1e", borderRadius:8, padding:"10px 12px", color:"#e8f0e8", fontSize:13, fontFamily:"inherit", outline:"none" },
-
   logForm: { background:"#0f180f", border:"1px solid #1e3a1e", borderRadius:14, padding:"16px" },
   logFormRow: { display:"flex", gap:10, alignItems:"flex-end", marginBottom:12 },
   segCtrl: { display:"flex", gap:3, flexWrap:"wrap" },
@@ -562,12 +659,10 @@ const S = {
   addBtn: { width:"100%", background:"#00e5a0", border:"none", color:"#0b0f0b", borderRadius:10, padding:"13px", fontSize:14, fontWeight:"bold", cursor:"pointer", fontFamily:"inherit", marginTop:12 },
   addBtnDisabled: { background:"#1a2a1a", color:"#4a6a4a", cursor:"not-allowed" },
   jugadorWarning: { background:"#2a1a0e", border:"1px solid #ff6b6b55", borderRadius:8, padding:"10px 12px", fontSize:12, color:"#ff9a6b" },
-
   logHeader: { display:"flex", padding:"8px 12px", fontSize:11, color:"#4a6a4a", textTransform:"uppercase", letterSpacing:1, borderBottom:"1px solid #1e3a1e" },
   logRow: { display:"flex", alignItems:"center", padding:"10px 12px", borderBottom:"1px solid #131f13", fontSize:13 },
   badge: { background:"#1a2a1a", color:"#7aaa7a", fontSize:10, padding:"2px 6px", borderRadius:4, fontWeight:"bold" },
   delBtn: { background:"transparent", border:"none", color:"#4a3a3a", cursor:"pointer", fontSize:13, padding:4 },
-
   playerList: { display:"flex", flexDirection:"column", gap:6 },
   playerRow: { display:"flex", alignItems:"center", gap:10, background:"#0f180f", border:"1px solid #1a2a1a", borderRadius:10, padding:"10px 14px", cursor:"pointer" },
   playerNumBadge: { width:28, height:28, background:"#1a2a1a", borderRadius:6, display:"flex", alignItems:"center", justifyContent:"center", fontSize:12, fontWeight:"bold", color:"#00e5a0", flexShrink:0 },
@@ -576,7 +671,6 @@ const S = {
   playerPosLabel: { fontSize:11, color:"#4a6a4a" },
   playerPtsBadge: { fontSize:12, color:"#f5c842", fontWeight:"bold" },
   playerArrow: { color:"#3a5a3a", fontSize:18, marginLeft:4 },
-
   pedHeader: { display:"flex", alignItems:"center", gap:12, background:"#0f180f", border:"1px solid #1a2a1a", borderRadius:12, padding:"14px 16px", marginBottom:16 },
   backBtn: { background:"transparent", border:"none", color:"#00e5a0", cursor:"pointer", fontSize:13, fontFamily:"inherit", whiteSpace:"nowrap" },
   pedName: { fontSize:17, fontWeight:"bold" },
@@ -592,7 +686,6 @@ const S = {
   statVal: { fontSize:22, fontWeight:"bold", minWidth:32, textAlign:"center" },
   pedNav: { display:"flex", justifyContent:"space-between", marginTop:14 },
   pedNavBtn: { background:"#0f180f", border:"1px solid #1e3a1e", color:"#00e5a0", borderRadius:8, padding:"9px 18px", cursor:"pointer", fontFamily:"inherit", fontSize:12 },
-
   resScorebig: { display:"flex", alignItems:"center", justifyContent:"center", gap:20, marginBottom:20, background:"#0f180f", borderRadius:14, padding:"20px" },
   resTeam: { flex:1, display:"flex", flexDirection:"column", alignItems:"center", gap:6 },
   resTeamName: { fontSize:11, color:"#6a8a6a", textTransform:"uppercase", letterSpacing:1 },
@@ -600,7 +693,6 @@ const S = {
   resMid: { display:"flex", flexDirection:"column", alignItems:"center", gap:4 },
   resDash: { fontSize:32, color:"#2a4a2a" },
   resRivalName: { fontSize:12, color:"#6a8a6a" },
-
   summCard: { background:"#0f180f", border:"1px solid #1a2a1a", borderRadius:12, overflow:"hidden" },
   summCardTitle: { padding:"12px 16px", fontSize:11, color:"#00e5a0", textTransform:"uppercase", letterSpacing:2, borderBottom:"1px solid #1a2a1a", fontWeight:"bold" },
   summHead: { display:"flex", padding:"8px 16px", fontSize:10, color:"#4a6a4a", textTransform:"uppercase", letterSpacing:.5, borderBottom:"1px solid #1a2a1a" },
@@ -609,12 +701,9 @@ const S = {
   barWrap: { height:16, background:"#111811", borderRadius:8, overflow:"hidden", position:"relative", flex:1, margin:"0 4px" },
   barFill: { height:"100%", borderRadius:8, transition:"width .4s ease" },
   barLabel: { position:"absolute", right:6, top:0, bottom:0, display:"flex", alignItems:"center", fontSize:10, color:"#fff", fontWeight:"bold" },
-
   notesBox: { background:"#0f180f", border:"1px solid #1a2a1a", borderRadius:8, padding:"12px 14px", fontSize:13, color:"#aaa", margin:"12px 0" },
   saveBtn: { width:"100%", background:"#00e5a0", border:"none", color:"#0b0f0b", borderRadius:10, padding:"14px", fontSize:15, fontWeight:"bold", cursor:"pointer", fontFamily:"inherit", marginTop:8 },
-
   empty: { textAlign:"center", color:"#3a5a3a", padding:"32px 16px", fontSize:14 },
-
   histCard: { background:"#0f180f", border:"1px solid #1a2a1a", borderRadius:12, padding:"16px", marginBottom:10 },
   histTop: { display:"flex", justifyContent:"space-between", marginBottom:8 },
   histRival: { fontSize:15, fontWeight:"bold" },
@@ -623,4 +712,11 @@ const S = {
   histScore: { fontSize:32, fontWeight:"bold", color:"#00e5a0" },
   histDash: { fontSize:20, color:"#2a4a2a" },
   histMeta: { fontSize:12, color:"#4a6a4a" },
+  histActions: { display:"flex", gap:8, marginTop:12 },
+  histBtnEdit: { flex:1, background:"#1a2a1a", border:"1px solid #2a4a2a", color:"#00e5a0", borderRadius:8, padding:"9px", cursor:"pointer", fontFamily:"inherit", fontSize:13, fontWeight:"bold" },
+  histBtnDelete: { flex:1, background:"#2a1a1a", border:"1px solid #4a2a2a", color:"#ff6b6b", borderRadius:8, padding:"9px", cursor:"pointer", fontFamily:"inherit", fontSize:13, fontWeight:"bold" },
+  histConfirm: { marginTop:12, background:"#1a0f0f", border:"1px solid #ff6b6b44", borderRadius:8, padding:"12px" },
+  histConfirmText: { fontSize:13, color:"#ffaaaa" },
+  histBtnDanger: { background:"#ff6b6b", border:"none", color:"#fff", borderRadius:8, padding:"8px 16px", cursor:"pointer", fontFamily:"inherit", fontSize:13, fontWeight:"bold" },
+  histBtnCancel: { background:"#1a2a1a", border:"1px solid #2a4a2a", color:"#aaa", borderRadius:8, padding:"8px 16px", cursor:"pointer", fontFamily:"inherit", fontSize:13 },
 };
