@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect } from "react";
 import { initializeApp } from "firebase/app";
 import { getFirestore, collection, addDoc, getDocs, deleteDoc, doc, updateDoc } from "firebase/firestore";
+import { getAuth, signInWithEmailAndPassword, signOut, onAuthStateChanged } from "firebase/auth";
 
 // ─── FIREBASE CONFIG ─────────────────────────────────────────────────────────
 
@@ -16,6 +17,7 @@ const firebaseConfig = {
 
 const firebaseApp = initializeApp(firebaseConfig);
 const db = getFirestore(firebaseApp);
+const auth = getAuth(firebaseApp);
 
 // ─── DATA CONFIG ─────────────────────────────────────────────────────────────
 
@@ -66,14 +68,11 @@ const initMatch = () => ({
 
 const calcPts = (p) => p.tries*5 + p.conversions*2 + p.penalties*3 + p.dropGoals*3;
 
-// ─── SUMMARY HELPERS ─────────────────────────────────────────────────────────
-
 function buildSummary(log, tiempo = null) {
   const rows = tiempo ? log.filter(e => e.tiempo === tiempo) : log;
   const count = (equipo, accion, resultado) =>
     rows.filter(e => e.equipo===equipo && e.accion===accion && (resultado ? e.resultado===resultado : true)).length;
   const pct = (a, b) => { const t = a + b; return t === 0 ? null : Math.round((a/t)*100); };
-
   return [
     { label:"Line Ganados",      propio: count("Propio","Line","Ganado"),           rival: count("Rival","Line","Ganado"),           type:"pos" },
     { label:"Line Perdidos",     propio: count("Propio","Line","Perdido"),          rival: count("Rival","Line","Perdido"),          type:"neg" },
@@ -90,11 +89,55 @@ function buildSummary(log, tiempo = null) {
     { label:"Salidas >22",       propio: count("Propio","Salidas","Fuera de las 22"),  rival: count("Rival","Salidas","Fuera de las 22"),  type:"pos" },
     { label:"Salidas Cortas",    propio: count("Propio","Salidas","Cortas"),        rival: count("Rival","Salidas","Cortas"),        type:"neu" },
     { label:"Salidas Largas",    propio: count("Propio","Salidas","Largas"),        rival: count("Rival","Salidas","Largas"),        type:"neu" },
-  ].map(r => ({
-    ...r,
-    pct: r.type==="pos" ? pct(r.propio, r.propio+r.rival) :
-         r.type==="neg" ? pct(r.rival,  r.propio+r.rival) : null,
-  }));
+  ].map(r => ({ ...r, pct: r.type==="pos" ? pct(r.propio, r.propio+r.rival) : r.type==="neg" ? pct(r.rival, r.propio+r.rival) : null }));
+}
+
+// ─── LOGIN SCREEN ─────────────────────────────────────────────────────────────
+
+function LoginScreen({ onLogin }) {
+  const [email, setEmail]       = useState("");
+  const [password, setPassword] = useState("");
+  const [error, setError]       = useState("");
+  const [loading, setLoading]   = useState(false);
+
+  const handleLogin = async () => {
+    if (!email || !password) { setError("Completá todos los campos."); return; }
+    setLoading(true);
+    setError("");
+    try {
+      await signInWithEmailAndPassword(auth, email, password);
+    } catch(e) {
+      setError("Email o contraseña incorrectos.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div style={S.loginRoot}>
+      <div style={S.loginCard}>
+        <div style={S.loginLogo}>
+          <span style={{fontSize:40}}>🏉</span>
+          <div style={S.loginTitle}>RUGBY<span style={S.loginAccent}>STATS</span></div>
+          <div style={S.loginSubtitle}>SMRHC — Staff Técnico</div>
+        </div>
+        <div style={S.loginForm}>
+          <label style={S.loginLabel}>Email
+            <input style={S.loginInput} type="email" placeholder="tu@email.com" value={email} onChange={e=>setEmail(e.target.value)}
+              onKeyDown={e=>e.key==="Enter"&&handleLogin()}/>
+          </label>
+          <label style={S.loginLabel}>Contraseña
+            <input style={S.loginInput} type="password" placeholder="••••••••" value={password} onChange={e=>setPassword(e.target.value)}
+              onKeyDown={e=>e.key==="Enter"&&handleLogin()}/>
+          </label>
+          {error && <div style={S.loginError}>{error}</div>}
+          <button style={{...S.loginBtn, opacity: loading?0.7:1}} onClick={handleLogin} disabled={loading}>
+            {loading ? "Ingresando..." : "Ingresar"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 // ─── MAIN APP ────────────────────────────────────────────────────────────────
@@ -102,6 +145,8 @@ function buildSummary(log, tiempo = null) {
 const SECTIONS = ["Partido","Registro","Jugadores","Resumen"];
 
 export default function App() {
+  const [user, setUser]                 = useState(null);
+  const [authLoading, setAuthLoading]   = useState(true);
   const [match, setMatch]               = useState(initMatch());
   const [section, setSection]           = useState(0);
   const [matches, setMatches]           = useState([]);
@@ -115,27 +160,28 @@ export default function App() {
   const [resTab, setResTab]             = useState("total");
   const [toast, setToast]               = useState(null);
 
-  const showToast = (msg, type="ok") => {
-    setToast({msg, type});
-    setTimeout(() => setToast(null), 2500);
-  };
+  const showToast = (msg, type="ok") => { setToast({msg,type}); setTimeout(()=>setToast(null),2500); };
 
-  // ── Cargar partidos de Firebase al iniciar ──
+  // ── Auth listener ──
   useEffect(() => {
+    const unsub = onAuthStateChanged(auth, (u) => { setUser(u); setAuthLoading(false); });
+    return unsub;
+  }, []);
+
+  // ── Cargar partidos ──
+  useEffect(() => {
+    if (!user) return;
     const fetchMatches = async () => {
       try {
         const snapshot = await getDocs(collection(db, "partidos"));
         const data = snapshot.docs.map(d => ({ ...d.data(), firebaseId: d.id }));
         data.sort((a,b) => new Date(b.date) - new Date(a.date));
         setMatches(data);
-      } catch(e) {
-        console.error(e);
-      } finally {
-        setLoading(false);
-      }
+      } catch(e) { console.error(e); }
+      finally { setLoading(false); }
     };
     fetchMatches();
-  }, []);
+  }, [user]);
 
   const updateMatch  = (k,v) => setMatch(m => ({...m,[k]:v}));
   const updatePlayer = (id,k,v) => setMatch(m => ({...m, players: m.players.map(p => p.id===id ? {...p,[k]:v} : p)}));
@@ -151,11 +197,10 @@ export default function App() {
   };
   const removeLog = (id) => setMatch(m => ({...m, log: m.log.filter(e => e.id!==id)}));
 
-  // ── Guardar en Firebase ──
   const saveMatch = async () => {
     setSaving(true);
     try {
-      const data = { ...match, savedAt: new Date().toLocaleString() };
+      const data = { ...match, savedAt: new Date().toLocaleString(), savedBy: user.email };
       if (editingId) {
         await updateDoc(doc(db, "partidos", editingId), data);
         setMatches(prev => prev.map(m => m.firebaseId === editingId ? { ...data, firebaseId: editingId } : m));
@@ -168,33 +213,20 @@ export default function App() {
       }
       setMatch(initMatch());
       setSection(0);
-    } catch(e) {
-      showToast("❌ Error al guardar", "error");
-    } finally {
-      setSaving(false);
-    }
+    } catch(e) { showToast("❌ Error al guardar", "error"); }
+    finally { setSaving(false); }
   };
 
-  // ── Borrar de Firebase ──
   const deleteMatch = async (firebaseId) => {
     try {
       await deleteDoc(doc(db, "partidos", firebaseId));
       setMatches(prev => prev.filter(m => m.firebaseId !== firebaseId));
       setConfirmDelete(null);
       showToast("🗑 Partido borrado");
-    } catch(e) {
-      showToast("❌ Error al borrar", "error");
-    }
+    } catch(e) { showToast("❌ Error al borrar", "error"); }
   };
 
-  // ── Editar: cargar partido en el formulario ──
-  const editMatch = (m) => {
-    setMatch(m);
-    setEditingId(m.firebaseId);
-    setHistoryOpen(false);
-    setSection(0);
-    setSelPlayer(null);
-  };
+  const editMatch = (m) => { setMatch(m); setEditingId(m.firebaseId); setHistoryOpen(false); setSection(0); setSelPlayer(null); };
 
   const summary       = useMemo(() => buildSummary(match.log),       [match.log]);
   const summary1T     = useMemo(() => buildSummary(match.log,"1T"),  [match.log]);
@@ -202,10 +234,12 @@ export default function App() {
   const activeSummary = resTab==="1T" ? summary1T : resTab==="2T" ? summary2T : summary;
   const selPlayerData = match.players.find(p => p.id === selPlayer);
 
-  // ── HISTORY ──
+  if (authLoading) return <div style={{...S.root, display:"flex", alignItems:"center", justifyContent:"center", fontSize:14, color:"#4a6a4a"}}>Cargando...</div>;
+  if (!user) return <LoginScreen />;
+
   if (historyOpen) return (
     <div style={S.root}>
-      <Header>
+      <Header user={user}>
         <button style={S.pill} onClick={() => { setHistoryOpen(false); setConfirmDelete(null); }}>← Volver</button>
       </Header>
       <div style={S.page}>
@@ -224,6 +258,7 @@ export default function App() {
               <span style={S.histScore}>{m.score?.them ?? 0}</span>
             </div>
             <div style={S.histMeta}>{m.location}{m.competition ? ` · ${m.competition}`:""} · {m.log?.length||0} acciones · {m.savedAt}</div>
+            {m.savedBy && <div style={{fontSize:11, color:"#3a5a3a", marginTop:4}}>Guardado por: {m.savedBy}</div>}
             {confirmDelete === m.firebaseId ? (
               <div style={S.histConfirm}>
                 <span style={S.histConfirmText}>¿Seguro que querés borrar este partido?</span>
@@ -247,13 +282,11 @@ export default function App() {
   return (
     <div style={S.root}>
       {toast && <div style={{...S.toast, background: toast.type==="error"?"#4a1a1a":"#1a3a1a"}}>{toast.msg}</div>}
-
-      <Header>
+      <Header user={user}>
         <button style={S.pill} onClick={() => setHistoryOpen(true)}>Historial ({matches.length})</button>
         <button style={S.pillGreen} onClick={() => { setMatch(initMatch()); setSection(0); setSelPlayer(null); setEditingId(null); }}>+ Nuevo</button>
       </Header>
 
-      {/* SCOREBOARD */}
       <div style={S.scoreboard}>
         <div style={S.scoreTeam}>
           <div style={S.scoreLabel}>Nuestro equipo</div>
@@ -280,34 +313,24 @@ export default function App() {
 
       {editingId && <div style={S.editingBanner}>✏️ Estás editando un partido guardado — recordá guardar los cambios en Resumen</div>}
 
-      {/* NAV */}
       <div style={S.nav}>
         {SECTIONS.map((s,i) => (
-          <button key={s} style={{...S.navBtn,...(section===i?S.navBtnActive:{})}} onClick={() => { setSection(i); setSelPlayer(null); }}>
-            {s}
-          </button>
+          <button key={s} style={{...S.navBtn,...(section===i?S.navBtnActive:{})}} onClick={() => { setSection(i); setSelPlayer(null); }}>{s}</button>
         ))}
       </div>
 
-      {/* ── SECCIÓN 0: PARTIDO ── */}
       {section === 0 && (
         <div style={S.page}>
           <div style={S.pageTitle}>Datos del Partido</div>
           <div style={S.grid2}>
-            <Field label="Fecha">
-              <input style={S.input} type="date" value={match.date} onChange={e=>updateMatch("date",e.target.value)}/>
-            </Field>
-            <Field label="Rival">
-              <input style={S.input} placeholder="Nombre del rival" value={match.rival} onChange={e=>updateMatch("rival",e.target.value)}/>
-            </Field>
+            <Field label="Fecha"><input style={S.input} type="date" value={match.date} onChange={e=>updateMatch("date",e.target.value)}/></Field>
+            <Field label="Rival"><input style={S.input} placeholder="Nombre del rival" value={match.rival} onChange={e=>updateMatch("rival",e.target.value)}/></Field>
             <Field label="Sede">
               <select style={S.input} value={match.location} onChange={e=>updateMatch("location",e.target.value)}>
                 <option>Local</option><option>Visitante</option><option>Cancha neutral</option>
               </select>
             </Field>
-            <Field label="Competencia">
-              <input style={S.input} placeholder="Ej: Liga provincial" value={match.competition} onChange={e=>updateMatch("competition",e.target.value)}/>
-            </Field>
+            <Field label="Competencia"><input style={S.input} placeholder="Ej: Liga provincial" value={match.competition} onChange={e=>updateMatch("competition",e.target.value)}/></Field>
           </div>
           <Field label="Notas del cuerpo técnico" style={{marginTop:12}}>
             <textarea style={{...S.input,minHeight:90,resize:"vertical"}} placeholder="Observaciones generales del partido..." value={match.notes} onChange={e=>updateMatch("notes",e.target.value)}/>
@@ -315,7 +338,6 @@ export default function App() {
         </div>
       )}
 
-      {/* ── SECCIÓN 1: REGISTRO TÁCTICO ── */}
       {section === 1 && (
         <div style={S.page}>
           <div style={S.pageTitle}>Registro de Acciones</div>
@@ -326,20 +348,15 @@ export default function App() {
               </Field>
               <Field label="Tiempo">
                 <div style={S.segCtrl}>
-                  {["1T","2T"].map(t => (
-                    <button key={t} style={{...S.segBtn,...(logForm.tiempo===t?S.segBtnActive:{})}} onClick={()=>setLogForm(f=>({...f,tiempo:t}))}>{t}</button>
-                  ))}
+                  {["1T","2T"].map(t => <button key={t} style={{...S.segBtn,...(logForm.tiempo===t?S.segBtnActive:{})}} onClick={()=>setLogForm(f=>({...f,tiempo:t}))}>{t}</button>)}
                 </div>
               </Field>
               <Field label="Equipo">
                 <div style={S.segCtrl}>
-                  {["Propio","Rival"].map(eq => (
-                    <button key={eq} style={{...S.segBtn,...(logForm.equipo===eq?S.segBtnActive:{})}} onClick={()=>setLogForm(f=>({...f,equipo:eq,jugador:""}))}>{eq}</button>
-                  ))}
+                  {["Propio","Rival"].map(eq => <button key={eq} style={{...S.segBtn,...(logForm.equipo===eq?S.segBtnActive:{})}} onClick={()=>setLogForm(f=>({...f,equipo:eq,jugador:""}))}>{eq}</button>)}
                 </div>
               </Field>
             </div>
-
             <Field label="Acción">
               <div style={S.accionGrid}>
                 {Object.entries(ACCIONES).map(([key,{icon}]) => (
@@ -351,69 +368,40 @@ export default function App() {
                 ))}
               </div>
             </Field>
-
             <Field label="Resultado">
               <div style={S.segCtrl}>
-                {(ACCIONES[logForm.accion]?.resultados||[]).map(r => (
-                  <button key={r} style={{...S.segBtn,...(logForm.resultado===r?S.segBtnActive:{})}} onClick={()=>setLogForm(f=>({...f,resultado:r}))}>{r}</button>
-                ))}
+                {(ACCIONES[logForm.accion]?.resultados||[]).map(r => <button key={r} style={{...S.segBtn,...(logForm.resultado===r?S.segBtnActive:{})}} onClick={()=>setLogForm(f=>({...f,resultado:r}))}>{r}</button>)}
               </div>
             </Field>
-
             {requiereJugador && (
               <Field label={<span>Jugador <span style={{color:"#ff6b6b"}}>*</span></span>}>
-                {match.players.filter(p => p.name).length === 0 ? (
-                  <div style={S.jugadorWarning}>⚠️ Cargá los nombres en la pestaña Jugadores primero.</div>
-                ) : (
-                  <select
-                    style={{...S.input, borderColor: !logForm.jugador ? "#ff6b6b88" : "#1e3a1e"}}
-                    value={logForm.jugador}
-                    onChange={e => setLogForm(f=>({...f, jugador: e.target.value}))}
-                  >
-                    <option value="">— Seleccioná un jugador —</option>
-                    {match.players.filter(p => p.name).map(p => (
-                      <option key={p.id} value={`${p.id} - ${p.name}`}>#{p.id} {p.name} · {p.position}</option>
-                    ))}
-                  </select>
-                )}
+                {match.players.filter(p => p.name).length === 0
+                  ? <div style={S.jugadorWarning}>⚠️ Cargá los nombres en la pestaña Jugadores primero.</div>
+                  : <select style={{...S.input, borderColor: !logForm.jugador ? "#ff6b6b88" : "#1e3a1e"}} value={logForm.jugador} onChange={e => setLogForm(f=>({...f, jugador: e.target.value}))}>
+                      <option value="">— Seleccioná un jugador —</option>
+                      {match.players.filter(p => p.name).map(p => <option key={p.id} value={`${p.id} - ${p.name}`}>#{p.id} {p.name} · {p.position}</option>)}
+                    </select>
+                }
               </Field>
             )}
-
             <div style={S.logFormRow}>
-              <Field label="Penalización" style={{flex:1}}>
-                <input style={S.input} placeholder="Opcional" value={logForm.penalizacion} onChange={e=>setLogForm(f=>({...f,penalizacion:e.target.value}))}/>
-              </Field>
+              <Field label="Penalización" style={{flex:1}}><input style={S.input} placeholder="Opcional" value={logForm.penalizacion} onChange={e=>setLogForm(f=>({...f,penalizacion:e.target.value}))}/></Field>
               <Field label="Tarjeta">
                 <div style={S.segCtrl}>
-                  {["—","Amarilla","Roja"].map(t => (
-                    <button key={t} style={{...S.segBtn,...(logForm.tarjeta===(t==="—"?"":t)?S.segBtnActive:{})}}
-                      onClick={()=>setLogForm(f=>({...f,tarjeta:t==="—"?"":t}))}>{t}</button>
-                  ))}
+                  {["—","Amarilla","Roja"].map(t => <button key={t} style={{...S.segBtn,...(logForm.tarjeta===(t==="—"?"":t)?S.segBtnActive:{})}} onClick={()=>setLogForm(f=>({...f,tarjeta:t==="—"?"":t}))}>{t}</button>)}
                 </div>
               </Field>
             </div>
-
-            <Field label="Observaciones">
-              <input style={S.input} placeholder="Opcional" value={logForm.obs} onChange={e=>setLogForm(f=>({...f,obs:e.target.value}))}/>
-            </Field>
-
-            <button
-              style={{...S.addBtn, ...(requiereJugador && !logForm.jugador ? S.addBtnDisabled : {})}}
-              onClick={addLog}
-            >
+            <Field label="Observaciones"><input style={S.input} placeholder="Opcional" value={logForm.obs} onChange={e=>setLogForm(f=>({...f,obs:e.target.value}))}/></Field>
+            <button style={{...S.addBtn, ...(requiereJugador && !logForm.jugador ? S.addBtnDisabled : {})}} onClick={addLog}>
               {requiereJugador && !logForm.jugador ? "Seleccioná un jugador para continuar" : "+ Agregar acción"}
             </button>
           </div>
-
           {match.log.length > 0 && (
             <div style={{marginTop:20}}>
               <div style={S.logHeader}>
-                <span style={{flex:.4}}>Min</span>
-                <span style={{flex:.4}}>T</span>
-                <span style={{flex:.8}}>Equipo</span>
-                <span style={{flex:1.2}}>Acción</span>
-                <span style={{flex:1.8}}>Resultado / Jugador</span>
-                <span style={{flex:.3}}></span>
+                <span style={{flex:.4}}>Min</span><span style={{flex:.4}}>T</span><span style={{flex:.8}}>Equipo</span>
+                <span style={{flex:1.2}}>Acción</span><span style={{flex:1.8}}>Resultado / Jugador</span><span style={{flex:.3}}></span>
               </div>
               {[...match.log].reverse().map(e => (
                 <div key={e.id} style={{...S.logRow, borderLeft:`3px solid ${e.equipo==="Propio"?"#00e5a0":"#ff6b6b"}`}}>
@@ -426,9 +414,7 @@ export default function App() {
                     {e.jugador ? <span style={{color:"#f5c842"}}> · {e.jugador}</span> : ""}
                     {e.tarjeta ? ` · 🟡${e.tarjeta}` : ""}
                   </span>
-                  <span style={{flex:.3,textAlign:"right"}}>
-                    <button style={S.delBtn} onClick={()=>removeLog(e.id)}>✕</button>
-                  </span>
+                  <span style={{flex:.3,textAlign:"right"}}><button style={S.delBtn} onClick={()=>removeLog(e.id)}>✕</button></span>
                 </div>
               ))}
             </div>
@@ -437,7 +423,6 @@ export default function App() {
         </div>
       )}
 
-      {/* ── SECCIÓN 2: JUGADORES ── */}
       {section === 2 && (
         <div style={S.page}>
           {selPlayer === null ? (
@@ -448,9 +433,7 @@ export default function App() {
                   <div key={p.id} style={S.playerRow} onClick={()=>setSelPlayer(p.id)}>
                     <div style={S.playerNumBadge}>{p.id}</div>
                     <div style={S.playerRowInfo}>
-                      <input style={S.playerNameInput} placeholder="Nombre del jugador"
-                        value={p.name} onClick={e=>e.stopPropagation()}
-                        onChange={e=>updatePlayer(p.id,"name",e.target.value)}/>
+                      <input style={S.playerNameInput} placeholder="Nombre del jugador" value={p.name} onClick={e=>e.stopPropagation()} onChange={e=>updatePlayer(p.id,"name",e.target.value)}/>
                       <span style={S.playerPosLabel}>{p.position}</span>
                     </div>
                     {calcPts(p) > 0 && <div style={S.playerPtsBadge}>{calcPts(p)} pts</div>}
@@ -460,18 +443,11 @@ export default function App() {
               </div>
             </>
           ) : (
-            <PlayerEditor
-              p={selPlayerData}
-              update={(k,v)=>updatePlayer(selPlayerData.id,k,v)}
-              onBack={()=>setSelPlayer(null)}
-              onPrev={()=>setSelPlayer(v=>Math.max(1,v-1))}
-              onNext={()=>setSelPlayer(v=>Math.min(23,v+1))}
-            />
+            <PlayerEditor p={selPlayerData} update={(k,v)=>updatePlayer(selPlayerData.id,k,v)} onBack={()=>setSelPlayer(null)} onPrev={()=>setSelPlayer(v=>Math.max(1,v-1))} onNext={()=>setSelPlayer(v=>Math.min(23,v+1))}/>
           )}
         </div>
       )}
 
-      {/* ── SECCIÓN 3: RESUMEN ── */}
       {section === 3 && (
         <div style={S.page}>
           <div style={S.pageTitle}>Resumen del Partido</div>
@@ -480,13 +456,11 @@ export default function App() {
             <div style={S.resMid}><div style={S.resDash}>—</div>{match.rival&&<div style={S.resRivalName}>{match.rival}</div>}</div>
             <div style={S.resTeam}><div style={S.resTeamName}>{match.rival||"Rival"}</div><div style={{...S.resScoreNum,color:"#fff"}}>{match.score.them}</div></div>
           </div>
-
           <div style={S.nav}>
             {[["total","Todo el partido"],["1T","Primer Tiempo"],["2T","Segundo Tiempo"]].map(([k,l])=>(
               <button key={k} style={{...S.navBtn,...(resTab===k?S.navBtnActive:{})}} onClick={()=>setResTab(k)}>{l}</button>
             ))}
           </div>
-
           <div style={{...S.summCard,marginTop:16}}>
             <div style={S.summCardTitle}>Análisis Táctico</div>
             <div style={S.summHead}>
@@ -515,15 +489,12 @@ export default function App() {
               );
             })}
           </div>
-
           <div style={{...S.summCard,marginTop:16}}>
             <div style={S.summCardTitle}>Puntos por Jugador</div>
             <div style={S.summHead}>
               <span style={{flex:2}}>Jugador</span>
-              <span style={{flex:.7,textAlign:"center"}}>T</span>
-              <span style={{flex:.7,textAlign:"center"}}>C</span>
-              <span style={{flex:.7,textAlign:"center"}}>P</span>
-              <span style={{flex:.7,textAlign:"center"}}>D</span>
+              <span style={{flex:.7,textAlign:"center"}}>T</span><span style={{flex:.7,textAlign:"center"}}>C</span>
+              <span style={{flex:.7,textAlign:"center"}}>P</span><span style={{flex:.7,textAlign:"center"}}>D</span>
               <span style={{flex:.8,textAlign:"center",color:"#f5c842"}}>Pts</span>
               <span style={{flex:.7,textAlign:"center"}}>Min</span>
             </div>
@@ -538,10 +509,8 @@ export default function App() {
                 <span style={{flex:.7,textAlign:"center",color:"#888",fontSize:12}}>{p.minutesPlayed}'</span>
               </div>
             ))}
-            {match.players.filter(p=>p.name||calcPts(p)>0).length===0 &&
-              <div style={S.empty}>Cargá los jugadores en la pestaña Jugadores.</div>}
+            {match.players.filter(p=>p.name||calcPts(p)>0).length===0 && <div style={S.empty}>Cargá los jugadores en la pestaña Jugadores.</div>}
           </div>
-
           {match.notes && <div style={S.notesBox}><strong>Notas:</strong> {match.notes}</div>}
           <button style={{...S.saveBtn, opacity: saving?0.7:1}} onClick={saveMatch} disabled={saving}>
             {saving ? "Guardando..." : editingId ? "💾 Guardar cambios" : "💾 Guardar Partido"}
@@ -554,7 +523,7 @@ export default function App() {
 
 // ─── SUB-COMPONENTS ──────────────────────────────────────────────────────────
 
-function Header({ children }) {
+function Header({ children, user }) {
   return (
     <header style={S.header}>
       <div style={S.headerInner}>
@@ -562,7 +531,10 @@ function Header({ children }) {
           <span style={{fontSize:22}}>🏉</span>
           <span style={S.logoTxt}>RUGBY<span style={S.logoAcc}>STATS</span></span>
         </div>
-        <div style={{display:"flex",gap:8}}>{children}</div>
+        <div style={{display:"flex",gap:8,alignItems:"center"}}>
+          {children}
+          <button style={S.pillRed} onClick={() => signOut(auth)}>Salir</button>
+        </div>
       </div>
     </header>
   );
@@ -571,8 +543,7 @@ function Header({ children }) {
 function Field({ label, children, style }) {
   return (
     <label style={{display:"flex",flexDirection:"column",gap:6,fontSize:11,color:"#7a8a7a",textTransform:"uppercase",letterSpacing:1,...style}}>
-      {label}
-      {children}
+      {label}{children}
     </label>
   );
 }
@@ -582,10 +553,7 @@ function PlayerEditor({ p, update, onBack, onPrev, onNext }) {
     <div>
       <div style={S.pedHeader}>
         <button style={S.backBtn} onClick={onBack}>← Plantel</button>
-        <div>
-          <div style={S.pedName}>#{p.id} {p.name||"Sin nombre"}</div>
-          <div style={S.pedPos}>{p.position}</div>
-        </div>
+        <div><div style={S.pedName}>#{p.id} {p.name||"Sin nombre"}</div><div style={S.pedPos}>{p.position}</div></div>
         <div style={S.pedPts}>{calcPts(p)}<span style={{fontSize:12,color:"#888"}}> pts</span></div>
       </div>
       <div style={S.statsGrid}>
@@ -622,6 +590,17 @@ function PlayerEditor({ p, update, onBack, onPrev, onNext }) {
 
 const S = {
   root: { minHeight:"100vh", background:"#0b0f0b", color:"#e8f0e8", fontFamily:"'Georgia', 'Times New Roman', serif" },
+  loginRoot: { minHeight:"100vh", background:"#0b0f0b", display:"flex", alignItems:"center", justifyContent:"center", padding:16 },
+  loginCard: { background:"#0f180f", border:"1px solid #1e3a1e", borderRadius:16, padding:"40px 32px", width:"100%", maxWidth:380 },
+  loginLogo: { display:"flex", flexDirection:"column", alignItems:"center", gap:8, marginBottom:32 },
+  loginTitle: { fontSize:28, fontWeight:"bold", letterSpacing:4, color:"#e8f0e8" },
+  loginAccent: { color:"#00e5a0" },
+  loginSubtitle: { fontSize:12, color:"#4a6a4a", letterSpacing:2, textTransform:"uppercase" },
+  loginForm: { display:"flex", flexDirection:"column", gap:16 },
+  loginLabel: { display:"flex", flexDirection:"column", gap:6, fontSize:11, color:"#7a8a7a", textTransform:"uppercase", letterSpacing:1 },
+  loginInput: { background:"#0d150d", border:"1px solid #1e3a1e", borderRadius:8, padding:"12px 14px", color:"#e8f0e8", fontSize:14, fontFamily:"inherit", outline:"none" },
+  loginBtn: { background:"#00e5a0", border:"none", color:"#0b0f0b", borderRadius:10, padding:"14px", fontSize:15, fontWeight:"bold", cursor:"pointer", fontFamily:"inherit", marginTop:8 },
+  loginError: { background:"#2a1a1a", border:"1px solid #ff6b6b44", borderRadius:8, padding:"10px 12px", fontSize:13, color:"#ff9a9a" },
   toast: { position:"fixed", top:16, left:"50%", transform:"translateX(-50%)", zIndex:999, padding:"12px 24px", borderRadius:10, fontSize:14, fontWeight:"bold", color:"#fff", boxShadow:"0 4px 20px rgba(0,0,0,0.5)" },
   header: { position:"fixed", top:0, left:0, right:0, zIndex:100, background:"rgba(11,15,11,0.97)", borderBottom:"1.5px solid #1e3a1e", backdropFilter:"blur(12px)" },
   headerInner: { maxWidth:860, margin:"0 auto", padding:"11px 16px", display:"flex", alignItems:"center", justifyContent:"space-between" },
@@ -630,6 +609,7 @@ const S = {
   logoAcc: { color:"#00e5a0" },
   pill: { background:"transparent", border:"1px solid #2a4a2a", color:"#aaa", borderRadius:20, padding:"5px 14px", cursor:"pointer", fontSize:12, fontFamily:"inherit" },
   pillGreen: { background:"#00e5a0", border:"none", color:"#0b0f0b", borderRadius:20, padding:"5px 14px", cursor:"pointer", fontWeight:"bold", fontSize:12, fontFamily:"inherit" },
+  pillRed: { background:"transparent", border:"1px solid #4a2a2a", color:"#ff6b6b", borderRadius:20, padding:"5px 14px", cursor:"pointer", fontSize:12, fontFamily:"inherit" },
   editingBanner: { maxWidth:860, margin:"8px auto 0", padding:"8px 16px", background:"#1a2a0a", border:"1px solid #4a7a1a", borderRadius:8, fontSize:12, color:"#aadd44", textAlign:"center" },
   scoreboard: { maxWidth:860, margin:"72px auto 0", padding:"20px 16px 0", display:"flex", alignItems:"center", gap:8 },
   scoreTeam: { flex:1, display:"flex", flexDirection:"column", alignItems:"center", gap:8 },
