@@ -75,7 +75,7 @@ const doc = new JsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
   doc.setFont("helvetica","bold"); doc.setFontSize(11); doc.setTextColor(0,100,60);
   doc.text("ANÁLISIS TÁCTICO", margin, y); y+=4;
   const summary = buildSummaryForPDF(match.log||[]);
-  autoTable(doc, {
+  doc.autoTable({
     startY: y,
     head: [["Estadística","Propio","Rival"]],
     body: summary.map(r => [r.label, String(r.propio), String(r.rival)]),
@@ -97,7 +97,7 @@ const doc = new JsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
     if (y > 230) { doc.addPage(); y = 14; }
     doc.setFont("helvetica","bold"); doc.setFontSize(11); doc.setTextColor(0,100,60);
     doc.text("PUNTOS POR JUGADOR", margin, y); y+=4;
-    autoTable(doc, {
+    doc.autoTable({
       startY: y,
       head: [["Jugador","Tries","Conv.","Penales","Drop","Pts","Min"]],
       body: players.map(p => [
