@@ -131,6 +131,29 @@ function exportMatchPDF(match) {
   }
 
   // Footer
+  // Tarjetas
+  const tarjetas = (match.log||[]).filter(e => e.tarjeta && e.jugador);
+  if (tarjetas.length > 0) {
+    if (y > 240) { doc.addPage(); y = 14; }
+    doc.setFont("helvetica","bold"); doc.setFontSize(11); doc.setTextColor(0,100,60);
+    doc.text("TARJETAS", margin, y); y+=4;
+    autoTable(doc, {
+      startY: y,
+      head: [["Jugador","Tarjeta","Acción","Min.","Tiempo"]],
+      body: tarjetas.map(e => [e.jugador, e.tarjeta, e.accion.replace("_"," "), e.minuto||"—", e.tiempo]),
+      margin: {left:margin, right:margin},
+      styles: {fontSize:9, cellPadding:2.5},
+      headStyles: {fillColor:[0,100,60], textColor:[255,255,255], fontStyle:"bold", halign:"center"},
+      columnStyles: {
+        0:{cellWidth:70},
+        1:{halign:"center", cellWidth:25, textColor:[180,50,50], fontStyle:"bold"},
+        2:{cellWidth:45}, 3:{halign:"center"}, 4:{halign:"center"},
+      },
+      alternateRowStyles: {fillColor:[240,248,242]},
+    });
+    y = doc.lastAutoTable.finalY + 8;
+  }
+
   const pH = doc.internal.pageSize.height;
   doc.setDrawColor(0,150,90); doc.setLineWidth(0.4);
   doc.line(margin, pH-12, W-margin, pH-12);
@@ -562,7 +585,7 @@ export default function App() {
                   <span style={{flex:1.8,fontSize:12,color:"#ccc"}}>
                     {e.resultado}
                     {e.jugador ? <span style={{color:"#f5c842"}}> · {e.jugador}</span> : ""}
-                    {e.tarjeta ? ` · 🟡${e.tarjeta}` : ""}
+                    {e.tarjeta ? ` · ${e.tarjeta === "Roja" ? "🔴" : "🟡"}${e.tarjeta}` : ""}
                   </span>
                   <span style={{flex:.3,textAlign:"right"}}><button style={S.delBtn} onClick={()=>removeLog(e.id)}>✕</button></span>
                 </div>
