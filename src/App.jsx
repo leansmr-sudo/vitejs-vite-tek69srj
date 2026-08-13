@@ -20,10 +20,6 @@ function buildSummaryForPDF(log) {
     { label:"Penales Cometidos",  propio: count("Propio","Penal","Cometido"),           rival: count("Rival","Penal","Cometido") },
     { label:"Errores de Manejo",  propio: count("Propio","Error_de_manejo","Error"),    rival: count("Rival","Error_de_manejo","Error") },
     { label:"Quiebres",           propio: count("Propio","Quiebre","Hecho"),            rival: count("Rival","Quiebre","Hecho") },
-    { label:"Rucks < 3s",         propio: count("Propio","Ruck","Menos 3"),             rival: count("Rival","Ruck","Menos 3") },
-    { label:"Rucks > 3s",         propio: count("Propio","Ruck","Mas 3"),               rival: count("Rival","Ruck","Mas 3") },
-    { label:"Salidas dentro 22",  propio: count("Propio","Salidas","Dentro de las 22"), rival: count("Rival","Salidas","Dentro de las 22") },
-    { label:"Salidas fuera 22",   propio: count("Propio","Salidas","Fuera de las 22"),  rival: count("Rival","Salidas","Fuera de las 22") },
     { label:"Salidas Cortas",     propio: count("Propio","Salidas","Cortas"),           rival: count("Rival","Salidas","Cortas") },
     { label:"Salidas Largas",     propio: count("Propio","Salidas","Largas"),           rival: count("Rival","Salidas","Largas") },
   ];
@@ -99,10 +95,10 @@ const doc = new JsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
     doc.text("PUNTOS POR JUGADOR", margin, y); y+=4;
     doc.autoTable({
       startY: y,
-      head: [["Jugador","Tries","Conv.","Penales","Drop","Pts","Min"]],
+      head: [["Jugador","Tries","Conv.","Penales","Drop","Tackles","Pts","Min"]],
       body: players.map(p => [
         "#"+p.id+" "+(p.name||"—"),
-        p.tries||"—", p.conversions||"—", p.penalties||"—", p.dropGoals||"—",
+        p.tries||"—", p.conversions||"—", p.penalties||"—", p.dropGoals||"—", p.tackles||"—",
         (p.tries*5+p.conversions*2+p.penalties*3+p.dropGoals*3)||"—",
         (p.minutesPlayed||0)+"'"
       ]),
