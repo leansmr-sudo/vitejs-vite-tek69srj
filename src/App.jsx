@@ -181,6 +181,72 @@ const firebaseApp = initializeApp(firebaseConfig);
 const db = getFirestore(firebaseApp);
 const auth = getAuth(firebaseApp);
 
+// ─── PLANTEL BASE ────────────────────────────────────────────────────────────
+
+const PLANTEL_BASE = [
+  // SUPERIOR
+  { id:"p1",  nombre:"Gabriel Palavecino", equipos:["Superior"] },
+  { id:"p2",  nombre:"Diego Salvano",      equipos:["Superior"] },
+  { id:"p3",  nombre:"Ivan Barrera",       equipos:["Superior"] },
+  { id:"p4",  nombre:"Gianluca Muscia",    equipos:["Superior"] },
+  { id:"p5",  nombre:"Sebastian Gomez",    equipos:["Superior"] },
+  { id:"p6",  nombre:"Lautaro Clavero",    equipos:["Superior"] },
+  { id:"p7",  nombre:"Juan Vellori",       equipos:["Superior"] },
+  { id:"p8",  nombre:"Juan Garcia",        equipos:["Superior"] },
+  { id:"p9",  nombre:"Lucas Vera",         equipos:["Superior"] },
+  { id:"p10", nombre:"Damian Lucchetta",   equipos:["Superior"] },
+  { id:"p11", nombre:"Ignacio Cañas",      equipos:["Superior"] },
+  { id:"p12", nombre:"Tomas Garcia",       equipos:["Superior"] },
+  { id:"p13", nombre:"Juan Rivero",        equipos:["Superior"] },
+  { id:"p14", nombre:"Alejandro Natale",   equipos:["Superior"] },
+  { id:"p15", nombre:"Alejandro Oser",     equipos:["Superior"] },
+  { id:"p16", nombre:"Matias Aguirre",     equipos:["Superior"] },
+  // INTERMEDIA
+  { id:"p17", nombre:"Lucas Maidana",      equipos:["Intermedia"] },
+  { id:"p18", nombre:"Bahiano Pedernera",  equipos:["Intermedia"] },
+  { id:"p19", nombre:"Dylan de Castelli",  equipos:["Intermedia"] },
+  { id:"p20", nombre:"Dylan Zichert",      equipos:["Intermedia"] },
+  { id:"p21", nombre:"Matias Zapata",      equipos:["Intermedia"] },
+  { id:"p22", nombre:"Thiago Duarte",      equipos:["Intermedia"] },
+  { id:"p23", nombre:"Franco Rodriguez",   equipos:["Intermedia"] },
+  { id:"p24", nombre:"Enrique Alvarez",    equipos:["Intermedia"] },
+  { id:"p25", nombre:"Thomas Urcelay",     equipos:["Intermedia"] },
+  { id:"p26", nombre:"Matias Fernandez",   equipos:["Intermedia"] },
+  { id:"p27", nombre:"Tadeo Pena",         equipos:["Intermedia"] },
+  { id:"p28", nombre:"Facundo Salto",      equipos:["Intermedia"] },
+  { id:"p29", nombre:"Ignacio Gomez",      equipos:["Intermedia"] },
+  { id:"p30", nombre:"Samuel Acosta",      equipos:["Intermedia"] },
+  { id:"p31", nombre:"Felipe Varela",      equipos:["Intermedia"] },
+  { id:"p32", nombre:"Ramiro Urcelay",     equipos:["Intermedia"] },
+  { id:"p33", nombre:"Octavio Taborda",    equipos:["Intermedia"] },
+  // PRE-INTERMEDIA A
+  { id:"p34", nombre:"Brian Siarez",       equipos:["Pre-intermedia A"] },
+  { id:"p35", nombre:"Nahuel Gomez",       equipos:["Pre-intermedia A"] },
+  { id:"p36", nombre:"Juan Alvarez",       equipos:["Pre-intermedia A"] },
+  { id:"p37", nombre:"Tomas Galarza",      equipos:["Pre-intermedia A"] },
+  { id:"p38", nombre:"Nelson Balbuena",    equipos:["Pre-intermedia A"] },
+  { id:"p39", nombre:"Juan Dalbene",       equipos:["Pre-intermedia A"] },
+  { id:"p40", nombre:"Gustavo Aguilera",   equipos:["Pre-intermedia A"] },
+  { id:"p41", nombre:"Martin Silva",       equipos:["Pre-intermedia A"] },
+  { id:"p42", nombre:"Ariel Acosta",       equipos:["Pre-intermedia A"] },
+  { id:"p43", nombre:"Bautista Balbi",     equipos:["Pre-intermedia A"] },
+  { id:"p44", nombre:"Lionel Fernandez",   equipos:["Pre-intermedia A"] },
+  { id:"p45", nombre:"Ezequiel Quinteros", equipos:["Pre-intermedia A"] },
+  { id:"p46", nombre:"Ezequiel Villalba",  equipos:["Pre-intermedia A"] },
+  { id:"p47", nombre:"Nicolas Sosa",       equipos:["Pre-intermedia A"] },
+  { id:"p48", nombre:"Alvaro Pena",        equipos:["Pre-intermedia A"] },
+  { id:"p49", nombre:"Daniel Roldan",      equipos:["Pre-intermedia A"] },
+  { id:"p50", nombre:"Juan Ayala",         equipos:["Pre-intermedia A"] },
+  { id:"p51", nombre:"Nicolas D'Angelo",   equipos:["Pre-intermedia A"] },
+  { id:"p52", nombre:"Ignacio Gamarra",    equipos:["Pre-intermedia A"] },
+  { id:"p53", nombre:"Federico Gonzalez",  equipos:["Pre-intermedia A"] },
+  { id:"p54", nombre:"Cristian Torrico",   equipos:["Pre-intermedia A"] },
+  { id:"p55", nombre:"Matias Kuhn",        equipos:["Pre-intermedia A"] },
+];
+
+const EQUIPOS = ["Superior", "Intermedia", "Pre-intermedia A"];
+
+
 // ─── DATA CONFIG ─────────────────────────────────────────────────────────────
 
 const ACCIONES = {
@@ -222,7 +288,7 @@ const initPlayer = (n) => ({
 
 const initMatch = () => ({
   date: new Date().toISOString().split("T")[0],
-  rival: "", location: "Local", competition: "", notes: "",
+  rival: "", location: "Local", competition: "", equipo: "Superior", notes: "",
   score: { us:0, them:0 },
   players: Array.from({length:23}, (_,i) => initPlayer(i+1)),
   log: [],
@@ -314,7 +380,12 @@ export default function App() {
   const [section, setSection]           = useState(0);
   const [matches, setMatches]           = useState([]);
   const [historyOpen, setHistoryOpen]   = useState(false);
+  const [plantelOpen, setPlantelOpen]   = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(null);
+  const [plantelJugadores, setPlantelJugadores] = useState(PLANTEL_BASE);
+  const [nuevoJugador, setNuevoJugador] = useState({ nombre:"", equipos:[] });
+  const [editandoJugador, setEditandoJugador] = useState(null);
+  const [plantelFiltro, setPlantelFiltro] = useState("Todos");
   const [loading, setLoading]           = useState(true);
   const [saving, setSaving]             = useState(false);
   const [editingId, setEditingId]       = useState(null);
@@ -446,6 +517,7 @@ export default function App() {
     <div style={S.root}>
       {toast && <div style={{...S.toast, background: toast.type==="error"?"#4a1a1a":"#0e1f3a"}}>{toast.msg}</div>}
       <Header user={user}>
+        <button style={S.pill} onClick={() => setPlantelOpen(true)}>👥 Plantel</button>
         <button style={S.pill} onClick={() => setHistoryOpen(true)}>Historial ({matches.length})</button>
         <button style={S.pillGreen} onClick={() => { setMatch(initMatch()); setSection(0); setSelPlayer(null); setEditingId(null); }}>+ Nuevo</button>
       </Header>
@@ -504,6 +576,40 @@ export default function App() {
               </select>
             </Field>
             <Field label="Competencia"><input style={S.input} placeholder="Ej: Liga provincial" value={match.competition} onChange={e=>updateMatch("competition",e.target.value)}/></Field>
+          </div>
+          <Field label="Equipo" style={{marginTop:12}}>
+            <div style={S.segCtrl}>
+              {EQUIPOS.map(eq => (
+                <button key={eq} style={{...S.segBtn,...(match.equipo===eq?S.segBtnActive:{})}}
+                  onClick={()=>updateMatch("equipo",eq)}>{eq}</button>
+              ))}
+            </div>
+          </Field>
+          <div style={{marginTop:16}}>
+            <div style={{fontSize:11,color:"#7a8aaa",textTransform:"uppercase",letterSpacing:1,marginBottom:10}}>
+              Seleccioná los jugadores del partido (elegí 23)
+              <span style={{marginLeft:8,color:match.players.filter(p=>p.name).length===23?"#2979d4":"#f5c842"}}>
+                {match.players.filter(p=>p.name).length}/23 seleccionados
+              </span>
+            </div>
+            <PlantelSelector
+              equipo={match.equipo}
+              selectedPlayers={match.players}
+              plantel={plantelJugadores}
+              onToggle={(jugador, slotIdx) => {
+                const players = [...match.players];
+                const yaEsta = players.findIndex(p => p.name === jugador.nombre);
+                if (yaEsta !== -1) {
+                  players[yaEsta] = initPlayer(yaEsta+1);
+                } else {
+                  const slotVacio = players.findIndex(p => !p.name);
+                  if (slotVacio !== -1) {
+                    players[slotVacio] = { ...players[slotVacio], name: jugador.nombre };
+                  }
+                }
+                updateMatch("players", players);
+              }}
+            />
           </div>
           <Field label="Notas del cuerpo técnico" style={{marginTop:12}}>
             <textarea style={{...S.input,minHeight:90,resize:"vertical"}} placeholder="Observaciones generales del partido..." value={match.notes} onChange={e=>updateMatch("notes",e.target.value)}/>
@@ -696,6 +802,41 @@ export default function App() {
 }
 
 // ─── SUB-COMPONENTS ──────────────────────────────────────────────────────────
+
+function PlantelSelector({ equipo, selectedPlayers, onToggle, plantel }) {
+  const jugadoresEquipo = plantel.filter(j => j.equipos.includes(equipo) && j.activo !== false);
+  const nombresSeleccionados = selectedPlayers.filter(p => p.name).map(p => p.name);
+
+  return (
+    <div style={{display:"flex", flexDirection:"column", gap:6}}>
+      {jugadoresEquipo.map(j => {
+        const seleccionado = nombresSeleccionados.includes(j.nombre);
+        return (
+          <div key={j.id}
+            style={{
+              display:"flex", alignItems:"center", gap:10,
+              background: seleccionado ? "#0d1a3a" : "#0d1120",
+              border: `1px solid ${seleccionado ? "#2979d4" : "#1a2244"}`,
+              borderRadius:8, padding:"10px 14px", cursor:"pointer",
+              transition:"all .15s"
+            }}
+            onClick={() => onToggle(j)}
+          >
+            <div style={{
+              width:22, height:22, borderRadius:5, border:`2px solid ${seleccionado?"#2979d4":"#2a3060"}`,
+              background: seleccionado ? "#2979d4" : "transparent",
+              display:"flex", alignItems:"center", justifyContent:"center",
+              flexShrink:0, fontSize:13, color:"#fff"
+            }}>
+              {seleccionado && "✓"}
+            </div>
+            <span style={{fontSize:13, color: seleccionado ? "#e8f0e8" : "#7a8aaa"}}>{j.nombre}</span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
 
 function Header({ children, user }) {
   return (
