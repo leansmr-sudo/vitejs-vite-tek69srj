@@ -292,7 +292,6 @@ const initMatch = () => ({
   score: { us:0, them:0 },
   players: Array.from({length:23}, (_,i) => initPlayer(i+1)),
   log: [],
-  sustituciones: [],
 });
 
 const calcPts = (p) => p.tries*5 + p.conversions*2 + p.penalties*3 + p.dropGoals*3;
@@ -383,7 +382,8 @@ export default function App() {
   const [historyOpen, setHistoryOpen]   = useState(false);
   const [plantelOpen, setPlantelOpen]   = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(null);
-  const [plantelJugadores, setPlantelJugadores] = useState(PLANTEL_BASE);
+  const [plantelJugadores, setPlantelJugadores] = useState([]);
+  const [plantelCargado, setPlantelCargado] = useState(false);
   const [nuevoJugador, setNuevoJugador] = useState({ nombre:"", equipos:[] });
   const [editandoJugador, setEditandoJugador] = useState(null);
   const [plantelFiltro, setPlantelFiltro] = useState("Todos");
@@ -391,8 +391,6 @@ export default function App() {
   const [saving, setSaving]             = useState(false);
   const [editingId, setEditingId]       = useState(null);
   const [logForm, setLogForm]           = useState({ minuto:"", tiempo:"1T", equipo:"Propio", accion:"Tackle", resultado:"Efectivo", jugador:"", penalizacion:"", tarjeta:"", obs:"" });
-  const [sustForm, setSustForm]         = useState({ minuto:"", sale:"", entra:"", tiempo:"1T" });
-  const [showSust, setShowSust]         = useState(false);
   const [selPlayer, setSelPlayer]       = useState(null);
   const [resTab, setResTab]             = useState("total");
   const [toast, setToast]               = useState(null);
@@ -407,6 +405,25 @@ export default function App() {
 
   // ── Cargar partidos ──
   useEffect(() => {
+    if (!user) return;
+    const fetchPlantel = async () => {
+      try {
+        const snapshot = await getDocs(collection(db, "plantel"));
+        if (snapshot.empty) {
+          // Primera vez: cargar plantel base en Firebase
+          for (const j of PLANTEL_BASE) {
+            await addDoc(collection(db, "plantel"), j);
+          }
+          setPlantelJugadores(PLANTEL_BASE);
+        } else {
+          const data = snapshot.docs.map(d => ({ ...d.data(), firebaseId: d.id }));
+          setPlantelJugadores(data);
+        }
+        setPlantelCargado(true);
+      } catch(e) { console.error(e); }
+    };
+    fetchPlantel();
+  }, [user]);useEffect(() => {
     if (!user) return;
     const fetchMatches = async () => {
       try {
@@ -471,7 +488,94 @@ export default function App() {
   const activeSummary = resTab==="1T" ? summary1T : resTab==="2T" ? summary2T : summary;
   const selPlayerData = match.players.find(p => p.id === selPlayer);
 
-  if (authLoading) return <div style={{...S.root, display:"flex", alignItems:"center", justifyContent:"center", fontSize:14, color:"#4a6a9a"}}>Cargando...</div>;
+  if (plantelOpen) return (
+    <div style={S.root}>
+      <Header user={user}>
+        <button style={S.pill} onClick={() => { setPlantelOpen(false); setEditandoJugador(null); setNuevoJugador({nombre:"",equipos:[]}); }}>← Volver</button>
+      </Header>
+      <div style={S.page}>
+        <div style={S.pageTitle}>Gestión de Plantel ({plantelJugadores.filter(j=>j.activo!==false).length} activos)</div>
+        <div style={{...S.summCard, marginBottom:16}}>
+          <div style={S.summCardTitle}>➕ Agregar jugador nuevo</div>
+          <div style={{padding:16, display:"flex", flexDirection:"column", gap:12}}>
+            <Field label="Nombre completo">
+              <input style={S.input} placeholder="Ej: Juan Pérez" value={nuevoJugador.nombre}
+                onChange={e=>setNuevoJugador(f=>({...f,nombre:e.target.value}))}/>
+            </Field>
+            <Field label="Equipo(s)">
+              <div style={S.segCtrl}>
+                {EQUIPOS.map(eq => (
+                  <button key={eq} style={{...S.segBtn,...(nuevoJugador.equipos.includes(eq)?S.segBtnActive:{})}}
+                    onClick={()=>setNuevoJugador(f=>({...f,equipos:f.equipos.includes(eq)?f.equipos.filter(e=>e!==eq):[...f.equipos,eq]}))}>
+                    {eq}
+                  </button>
+                ))}
+              </div>
+            </Field>
+            <button style={{...S.addBtn, marginTop:0, ...((!nuevoJugador.nombre||nuevoJugador.equipos.length===0)?S.addBtnDisabled:{})}}
+              onClick={async ()=>{
+                if(!nuevoJugador.nombre||nuevoJugador.equipos.length===0) return;
+                const nuevoData = { nombre:nuevoJugador.nombre.trim(), equipos:nuevoJugador.equipos, activo:true };
+                const ref = await addDoc(collection(db, "plantel"), nuevoData);
+                setPlantelJugadores(prev=>[...prev, {...nuevoData, firebaseId: ref.id, id: ref.id}]);
+                setNuevoJugador({nombre:"",equipos:[]});
+              }}>
+              {(!nuevoJugador.nombre||nuevoJugador.equipos.length===0) ? "Completá nombre y equipo" : "✓ Agregar al plantel"}
+            </button>
+          </div>
+        </div>
+        <div style={{...S.nav, marginBottom:12}}>
+          {["Todos","Superior","Intermedia","Pre-intermedia A"].map(f=>(
+            <button key={f} style={{...S.navBtn,...(plantelFiltro===f?S.navBtnActive:{})}}
+              onClick={()=>setPlantelFiltro(f)}>{f}</button>
+          ))}
+        </div>
+        <div style={{display:"flex",flexDirection:"column",gap:6}}>
+          {plantelJugadores.filter(j=>plantelFiltro==="Todos"?true:j.equipos.includes(plantelFiltro)).map(j=>(
+            <div key={j.id} style={{background:j.activo===false?"#0a0c12":"#0d1120",border:`1px solid ${j.activo===false?"#2a2a3a":"#1a2244"}`,borderRadius:10,padding:"12px 14px",opacity:j.activo===false?0.6:1}}>
+              {editandoJugador===j.id ? (
+                <div style={{display:"flex",flexDirection:"column",gap:10}}>
+                  <input style={S.input} value={j.nombre}
+                    onChange={e=>setPlantelJugadores(prev=>prev.map(p=>p.id===j.id?{...p,nombre:e.target.value}:p))}/>
+                  <div style={S.segCtrl}>
+                    {EQUIPOS.map(eq=>(
+                      <button key={eq} style={{...S.segBtn,...(j.equipos.includes(eq)?S.segBtnActive:{})}}
+                        onClick={()=>setPlantelJugadores(prev=>prev.map(p=>p.id===j.id?{...p,equipos:p.equipos.includes(eq)?p.equipos.filter(e=>e!==eq):[...p.equipos,eq]}:p))}>
+                        {eq}
+                      </button>
+                    ))}
+                  </div>
+                  <div style={{display:"flex",gap:8}}>
+                    <button style={{...S.histBtnEdit,flex:1}} onClick={()=>setEditandoJugador(null)}>✓ Guardar</button>
+                    <button style={{...S.histBtnCancel,flex:1}} onClick={()=>setEditandoJugador(null)}>Cancelar</button>
+                  </div>
+                </div>
+              ):(
+                <div style={{display:"flex",alignItems:"center",gap:10}}>
+                  <div style={{flex:1}}>
+                    <div style={{fontSize:13,fontWeight:"bold",color:j.activo===false?"#4a6a9a":"#e8f0e8"}}>{j.nombre}</div>
+                    <div style={{fontSize:11,color:"#4a6a9a",marginTop:3}}>{j.equipos.join(" · ")}{j.activo===false&&<span style={{color:"#ff6b6b",marginLeft:8}}>· Inactivo</span>}</div>
+                  </div>
+                  <button style={{...S.segBtn,fontSize:11,padding:"5px 10px"}} onClick={()=>setEditandoJugador(j.id)}>✏️ Editar</button>
+                  <button style={{...S.segBtn,fontSize:11,padding:"5px 10px",color:j.activo===false?"#2979d4":"#ff9a6b",borderColor:j.activo===false?"#1a2244":"#4a2a1a"}}
+                    onClick={()=>setPlantelJugadores(prev=>prev.map(p=>p.id===j.id?{...p,activo:p.activo===false?true:false}:p))}>
+                    {j.activo===false?"↩ Activar":"⏸ Inactivar"}<button style={{...S.segBtn,fontSize:11,padding:"5px 10px",color:"#ff6b6b",borderColor:"#4a2a2a"}}
+                    onClick={async ()=>{
+                      if(!window.confirm(`¿Seguro que querés eliminar a ${j.nombre}?`)) return;
+                      if(j.firebaseId) await deleteDoc(doc(db,"plantel",j.firebaseId));
+                      setPlantelJugadores(prev=>prev.filter(p=>p.id!==j.id));
+                    }}>
+                    🗑
+                  </button>
+                  </button>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );if (authLoading) return <div style={{...S.root, display:"flex", alignItems:"center", justifyContent:"center", fontSize:14, color:"#4a6a9a"}}>Cargando...</div>;
   if (!user) return <LoginScreen />;
 
   if (historyOpen) return (
@@ -702,102 +806,6 @@ export default function App() {
             </div>
           )}
           {match.log.length === 0 && <div style={S.empty}>Todavía no hay acciones registradas.</div>}
-
-          {/* SUSTITUCIONES */}
-          <div style={{marginTop:20}}>
-            <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
-              <div style={{fontSize:13,color:"#2979d4",fontWeight:"bold",textTransform:"uppercase",letterSpacing:2}}>🔄 Sustituciones</div>
-              <button style={{...S.segBtn,fontSize:12}} onClick={()=>setShowSust(v=>!v)}>
-                {showSust?"✕ Cerrar":"+ Registrar"}
-              </button>
-            </div>
-
-            {showSust && (
-              <div style={{...S.logForm, marginBottom:12}}>
-                <div style={S.logFormRow}>
-                  <Field label="Min." style={{width:60}}>
-                    <input style={{...S.input,textAlign:"center"}} placeholder="—" value={sustForm.minuto}
-                      onChange={e=>setSustForm(f=>({...f,minuto:e.target.value}))}/>
-                  </Field>
-                  <Field label="Tiempo">
-                    <div style={S.segCtrl}>
-                      {["1T","2T"].map(t=>(
-                        <button key={t} style={{...S.segBtn,...(sustForm.tiempo===t?S.segBtnActive:{})}}
-                          onClick={()=>setSustForm(f=>({...f,tiempo:t}))}>{t}</button>
-                      ))}
-                    </div>
-                  </Field>
-                </div>
-                <Field label={<span>Sale <span style={{color:"#ff6b6b"}}>*</span></span>}>
-                  <select style={{...S.input,borderColor:!sustForm.sale?"#ff6b6b88":"#1a2244"}}
-                    value={sustForm.sale} onChange={e=>setSustForm(f=>({...f,sale:e.target.value}))}>
-                    <option value="">— Seleccioná el jugador que sale —</option>
-                    {match.players.filter(p=>p.name && !(match.sustituciones||[]).some(s=>s.sale===p.name||s.entra===p.name&&s.sale!==p.name)).map(p=>(
-                      <option key={p.id} value={p.name}>{p.name}</option>
-                    ))}
-                  </select>
-                </Field>
-                <Field label={<span>Entra <span style={{color:"#ff6b6b"}}>*</span></span>} style={{marginTop:8}}>
-                  <select style={{...S.input,borderColor:!sustForm.entra?"#ff6b6b88":"#1a2244"}}
-                    value={sustForm.entra} onChange={e=>setSustForm(f=>({...f,entra:e.target.value}))}>
-                    <option value="">— Seleccioná el jugador que entra —</option>
-                    {plantelJugadores.filter(j=>
-                      j.activo!==false &&
-                      j.equipos.includes(match.equipo) &&
-                      !match.players.some(p=>p.name===j.nombre) &&
-                      !(match.sustituciones||[]).some(s=>s.entra===j.nombre)
-                    ).map(j=>(
-                      <option key={j.id} value={j.nombre}>{j.nombre}</option>
-                    ))}
-                  </select>
-                </Field>
-                <button
-                  style={{...S.addBtn,marginTop:12,...((!sustForm.sale||!sustForm.entra)?S.addBtnDisabled:{})}}
-                  onClick={()=>{
-                    if(!sustForm.sale||!sustForm.entra) return;
-                    const minuto = parseInt(sustForm.minuto)||0;
-                    const minSale = minuto || 80;
-                    const minEntra = minuto ? (sustForm.tiempo==="1T" ? 40-minuto : 80-minuto) : 0;
-                    setMatch(m=>({
-                      ...m,
-                      sustituciones: [...(m.sustituciones||[]), {...sustForm, id:Date.now()}],
-                      players: m.players.map(p=>{
-                        if(p.name===sustForm.sale) return {...p, minutesPlayed: minSale};
-                        return p;
-                      })
-                    }));
-                    setSustForm({minuto:"",sale:"",entra:"",tiempo:"1T"});
-                    setShowSust(false);
-                  }}>
-                  {(!sustForm.sale||!sustForm.entra)?"Completá sale y entra":"✓ Confirmar sustitución"}
-                </button>
-              </div>
-            )}
-
-            {(match.sustituciones||[]).length > 0 && (
-              <div>
-                <div style={S.logHeader}>
-                  <span style={{flex:.4}}>Min</span>
-                  <span style={{flex:.4}}>T</span>
-                  <span style={{flex:1.5}}>Sale</span>
-                  <span style={{flex:1.5}}>Entra</span>
-                  <span style={{flex:.3}}></span>
-                </div>
-                {(match.sustituciones||[]).map(s=>(
-                  <div key={s.id} style={{...S.logRow,borderLeft:"3px solid #f5c842"}}>
-                    <span style={{flex:.4,color:"#888",fontSize:12}}>{s.minuto||"—"}</span>
-                    <span style={{flex:.4}}><span style={S.badge}>{s.tiempo}</span></span>
-                    <span style={{flex:1.5,fontSize:13,color:"#ff6b6b"}}>↑ {s.sale}</span>
-                    <span style={{flex:1.5,fontSize:13,color:"#2979d4"}}>↓ {s.entra}</span>
-                    <span style={{flex:.3,textAlign:"right"}}>
-                      <button style={S.delBtn} onClick={()=>setMatch(m=>({...m,sustituciones:(m.sustituciones||[]).filter(x=>x.id!==s.id)}))}>✕</button>
-                    </span>
-                  </div>
-                ))}
-              </div>
-            )}
-            {(match.sustituciones||[]).length === 0 && <div style={{...S.empty,padding:"16px"}}>No hay sustituciones registradas.</div>}
-          </div>
         </div>
       )}
 
