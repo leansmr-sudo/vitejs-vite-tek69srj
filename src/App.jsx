@@ -382,7 +382,8 @@ export default function App() {
   const [historyOpen, setHistoryOpen]   = useState(false);
   const [plantelOpen, setPlantelOpen]   = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(null);
-  const [plantelJugadores, setPlantelJugadores] = useState(PLANTEL_BASE);
+  const [plantelJugadores, setPlantelJugadores] = useState([]);
+  const [plantelCargado, setPlantelCargado] = useState(false);
   const [nuevoJugador, setNuevoJugador] = useState({ nombre:"", equipos:[] });
   const [editandoJugador, setEditandoJugador] = useState(null);
   const [plantelFiltro, setPlantelFiltro] = useState("Todos");
@@ -404,6 +405,25 @@ export default function App() {
 
   // ── Cargar partidos ──
   useEffect(() => {
+    if (!user) return;
+    const fetchPlantel = async () => {
+      try {
+        const snapshot = await getDocs(collection(db, "plantel"));
+        if (snapshot.empty) {
+          // Primera vez: cargar plantel base en Firebase
+          for (const j of PLANTEL_BASE) {
+            await addDoc(collection(db, "plantel"), j);
+          }
+          setPlantelJugadores(PLANTEL_BASE);
+        } else {
+          const data = snapshot.docs.map(d => ({ ...d.data(), firebaseId: d.id }));
+          setPlantelJugadores(data);
+        }
+        setPlantelCargado(true);
+      } catch(e) { console.error(e); }
+    };
+    fetchPlantel();
+  }, [user]);useEffect(() => {
     if (!user) return;
     const fetchMatches = async () => {
       try {
