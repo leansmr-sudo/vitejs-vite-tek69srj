@@ -513,10 +513,11 @@ export default function App() {
               </div>
             </Field>
             <button style={{...S.addBtn, marginTop:0, ...((!nuevoJugador.nombre||nuevoJugador.equipos.length===0)?S.addBtnDisabled:{})}}
-              onClick={()=>{
+              onClick={async ()=>{
                 if(!nuevoJugador.nombre||nuevoJugador.equipos.length===0) return;
-                const nuevo = { id:"p"+(Date.now()), nombre:nuevoJugador.nombre.trim(), equipos:nuevoJugador.equipos, activo:true };
-                setPlantelJugadores(prev=>[...prev, nuevo]);
+                const nuevoData = { nombre:nuevoJugador.nombre.trim(), equipos:nuevoJugador.equipos, activo:true };
+                const ref = await addDoc(collection(db, "plantel"), nuevoData);
+                setPlantelJugadores(prev=>[...prev, {...nuevoData, firebaseId: ref.id, id: ref.id}]);
                 setNuevoJugador({nombre:"",equipos:[]});
               }}>
               {(!nuevoJugador.nombre||nuevoJugador.equipos.length===0) ? "Completá nombre y equipo" : "✓ Agregar al plantel"}
