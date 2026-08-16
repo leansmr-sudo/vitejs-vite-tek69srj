@@ -559,7 +559,14 @@ export default function App() {
                   <button style={{...S.segBtn,fontSize:11,padding:"5px 10px"}} onClick={()=>setEditandoJugador(j.id)}>✏️ Editar</button>
                   <button style={{...S.segBtn,fontSize:11,padding:"5px 10px",color:j.activo===false?"#2979d4":"#ff9a6b",borderColor:j.activo===false?"#1a2244":"#4a2a1a"}}
                     onClick={()=>setPlantelJugadores(prev=>prev.map(p=>p.id===j.id?{...p,activo:p.activo===false?true:false}:p))}>
-                    {j.activo===false?"↩ Activar":"⏸ Inactivar"}
+                    {j.activo===false?"↩ Activar":"⏸ Inactivar"}<button style={{...S.segBtn,fontSize:11,padding:"5px 10px",color:"#ff6b6b",borderColor:"#4a2a2a"}}
+                    onClick={async ()=>{
+                      if(!window.confirm(`¿Seguro que querés eliminar a ${j.nombre}?`)) return;
+                      if(j.firebaseId) await deleteDoc(doc(db,"plantel",j.firebaseId));
+                      setPlantelJugadores(prev=>prev.filter(p=>p.id!==j.id));
+                    }}>
+                    🗑
+                  </button>
                   </button>
                 </div>
               )}
