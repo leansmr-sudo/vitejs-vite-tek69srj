@@ -130,7 +130,29 @@ function exportMatchPDF(match) {
     doc.text(lines, margin, y);
   }
 
-  // Footer
+ // Sustituciones
+ const susts = match.sustituciones || [];
+ if (susts.length > 0) {
+   if (y > 240) { doc.addPage(); y = 14; }
+   doc.setFont("helvetica","bold"); doc.setFontSize(11); doc.setTextColor(0,100,60);
+   doc.text("SUSTITUCIONES", margin, y); y+=4;
+   autoTable(doc, {
+     startY: y,
+     head: [["Min.","Tiempo","Sale","Entra"]],
+     body: susts.map(s => [s.minuto||"—", s.tiempo, s.sale, s.entra]),
+     margin: {left:margin, right:margin},
+     styles: {fontSize:9, cellPadding:2.5},
+     headStyles: {fillColor:[0,100,60], textColor:[255,255,255], fontStyle:"bold", halign:"center"},
+     columnStyles: {
+       0:{halign:"center", cellWidth:20},
+       1:{halign:"center", cellWidth:20},
+       2:{cellWidth:70, textColor:[180,50,50]},
+       3:{cellWidth:70, textColor:[0,100,180]},
+     },
+     alternateRowStyles: {fillColor:[240,248,242]},
+   });
+   y = doc.lastAutoTable.finalY + 8;
+ } // Footer
   // Tarjetas
   const tarjetas = (match.log||[]).filter(e => e.tarjeta && e.jugador);
   if (tarjetas.length > 0) {
