@@ -493,7 +493,102 @@ export default function App() {
   const activeSummary = resTab==="1T" ? summary1T : resTab==="2T" ? summary2T : summary;
   const selPlayerData = match.players.find(p => p.id === selPlayer);
 
-  if (authLoading) return <div style={{...S.root, display:"flex", alignItems:"center", justifyContent:"center", fontSize:14, color:"#4a6a9a"}}>Cargando...</div>;
+  if (plantelOpen) return (
+    <div style={S.root}>
+      <Header user={user}>
+        <button style={S.pill} onClick={() => { setPlantelOpen(false); setEditandoJugador(null); setNuevoJugador({nombre:"",equipos:[]}); }}>← Volver</button>
+      </Header>
+      <div style={S.page}>
+        <div style={S.pageTitle}>Gestión de Plantel ({plantelJugadores.filter(j=>j.activo!==false).length} activos)</div>
+        <div style={{...S.summCard, marginBottom:16}}>
+          <div style={S.summCardTitle}>➕ Agregar jugador nuevo</div>
+          <div style={{padding:16, display:"flex", flexDirection:"column", gap:12}}>
+            <Field label="Nombre completo">
+              <input style={S.input} placeholder="Ej: Juan Pérez" value={nuevoJugador.nombre}
+                onChange={e=>setNuevoJugador(f=>({...f,nombre:e.target.value}))}/>
+            </Field>
+            <Field label="Equipo(s)">
+              <div style={S.segCtrl}>
+                {EQUIPOS.map(eq => (
+                  <button key={eq} style={{...S.segBtn,...(nuevoJugador.equipos.includes(eq)?S.segBtnActive:{})}}
+                    onClick={()=>setNuevoJugador(f=>({...f,equipos:f.equipos.includes(eq)?f.equipos.filter(e=>e!==eq):[...f.equipos,eq]}))}>
+                    {eq}
+                  </button>
+                ))}
+              </div>
+            </Field>
+            <button style={{...S.addBtn, marginTop:0, ...((!nuevoJugador.nombre||nuevoJugador.equipos.length===0)?S.addBtnDisabled:{})}}
+              onClick={async ()=>{
+                if(!nuevoJugador.nombre||nuevoJugador.equipos.length===0) return;
+                const nuevoData = { nombre:nuevoJugador.nombre.trim(), equipos:nuevoJugador.equipos, activo:true };
+                const ref = await addDoc(collection(db, "plantel"), nuevoData);
+                setPlantelJugadores(prev=>[...prev, {...nuevoData, firebaseId: ref.id, id: ref.id}]);
+                setNuevoJugador({nombre:"",equipos:[]});
+              }}>
+              {(!nuevoJugador.nombre||nuevoJugador.equipos.length===0) ? "Completá nombre y equipo" : "✓ Agregar al plantel"}
+            </button>
+          </div>
+        </div>
+        <div style={{...S.nav, marginBottom:12}}>
+          {["Todos","Superior","Intermedia","Pre-intermedia A"].map(f=>(
+            <button key={f} style={{...S.navBtn,...(plantelFiltro===f?S.navBtnActive:{})}}
+              onClick={()=>setPlantelFiltro(f)}>{f}</button>
+          ))}
+        </div>
+        <div style={{display:"flex",flexDirection:"column",gap:6}}>
+          {plantelJugadores.filter(j=>plantelFiltro==="Todos"?true:j.equipos.includes(plantelFiltro)).map(j=>(
+            <div key={j.id} style={{background:j.activo===false?"#0a0c12":"#0d1120",border:`1px solid ${j.activo===false?"#2a2a3a":"#1a2244"}`,borderRadius:10,padding:"12px 14px",opacity:j.activo===false?0.6:1}}>
+              {editandoJugador===j.id ? (
+                <div style={{display:"flex",flexDirection:"column",gap:10}}>
+                  <input style={S.input} value={j.nombre}
+                    onChange={e=>setPlantelJugadores(prev=>prev.map(p=>p.id===j.id?{...p,nombre:e.target.value}:p))}/>
+                  <div style={S.segCtrl}>
+                    {EQUIPOS.map(eq=>(
+                      <button key={eq} style={{...S.segBtn,...(j.equipos.includes(eq)?S.segBtnActive:{})}}
+                        onClick={()=>setPlantelJugadores(prev=>prev.map(p=>p.id===j.id?{...p,equipos:p.equipos.includes(eq)?p.equipos.filter(e=>e!==eq):[...p.equipos,eq]}:p))}>
+                        {eq}
+                      </button>
+                    ))}
+                  </div>
+                  <div style={{display:"flex",gap:8}}>
+                    <button style={{...S.histBtnEdit,flex:1}} onClick={async ()=>{
+                      if(j.firebaseId) await updateDoc(doc(db,"plantel",j.firebaseId), {nombre:j.nombre, equipos:j.equipos});
+                      setEditandoJugador(null);
+                    }}>✓ Guardar</button>
+                    <button style={{...S.histBtnCancel,flex:1}} onClick={()=>setEditandoJugador(null)}>Cancelar</button>
+                  </div>
+                </div>
+              ):(
+                <div style={{display:"flex",alignItems:"center",gap:10}}>
+                  <div style={{flex:1}}>
+                    <div style={{fontSize:13,fontWeight:"bold",color:j.activo===false?"#4a6a9a":"#e8f0e8"}}>{j.nombre}</div>
+                    <div style={{fontSize:11,color:"#4a6a9a",marginTop:3}}>{j.equipos.join(" · ")}{j.activo===false&&<span style={{color:"#ff6b6b",marginLeft:8}}>· Inactivo</span>}</div>
+                  </div>
+                  <button style={{...S.segBtn,fontSize:11,padding:"5px 10px"}} onClick={()=>setEditandoJugador(j.id)}>✏️ Editar</button>
+                  <button style={{...S.segBtn,fontSize:11,padding:"5px 10px",color:j.activo===false?"#2979d4":"#ff9a6b",borderColor:j.activo===false?"#1a2244":"#4a2a1a"}}
+                    onClick={async ()=>{
+                      const nuevoEstado = j.activo===false ? true : false;
+                      if(j.firebaseId) await updateDoc(doc(db,"plantel",j.firebaseId), {activo:nuevoEstado});
+                      setPlantelJugadores(prev=>prev.map(p=>p.id===j.id?{...p,activo:nuevoEstado}:p));
+                    }}>
+                    {j.activo===false?"↩ Activar":"⏸ Inactivar"}
+                  </button>
+                  <button style={{...S.segBtn,fontSize:11,padding:"5px 10px",color:"#ff6b6b",borderColor:"#4a2a2a"}}
+                    onClick={async ()=>{
+                      if(!window.confirm(`¿Seguro que querés eliminar a ${j.nombre}?`)) return;
+                      if(j.firebaseId) await deleteDoc(doc(db,"plantel",j.firebaseId));
+                      setPlantelJugadores(prev=>prev.filter(p=>p.id!==j.id));
+                    }}>
+                    🗑
+                  </button>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );if (authLoading) return <div style={{...S.root, display:"flex", alignItems:"center", justifyContent:"center", fontSize:14, color:"#4a6a9a"}}>Cargando...</div>;
   if (!user) return <LoginScreen />;
 
   if (historyOpen) return (
