@@ -815,7 +815,7 @@ export default function App() {
             <div style={{fontSize:11,color:"#7a8aaa",textTransform:"uppercase",letterSpacing:1,marginBottom:10}}>
               Seleccioná los jugadores del partido
               <span style={{marginLeft:8,color:"#2979d4"}}>
-                {match.players.filter(p=>p.name).length} seleccionados
+              {match.players.filter(p=>p.name).length} seleccionados — podés continuar con cualquier cantidad
               </span>
             </div>
             <PlantelSelector
