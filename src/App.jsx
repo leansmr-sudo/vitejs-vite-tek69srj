@@ -372,7 +372,7 @@ function LoginScreen({ onLogin }) {
 
 // ─── MAIN APP ────────────────────────────────────────────────────────────────
 
-const SECTIONS = ["Partido","Registro","Jugadores","Resumen"];
+const SECTIONS = ["Partido","Registro","Resumen"];
 
 export default function App() {
   const [user, setUser]                 = useState(null);
@@ -813,16 +813,16 @@ export default function App() {
           </Field>
           <div style={{marginTop:16}}>
             <div style={{fontSize:11,color:"#7a8aaa",textTransform:"uppercase",letterSpacing:1,marginBottom:10}}>
-              Seleccioná los jugadores del partido (elegí 23)
-              <span style={{marginLeft:8,color:match.players.filter(p=>p.name).length===23?"#2979d4":"#f5c842"}}>
-                {match.players.filter(p=>p.name).length}/23 seleccionados
+              Seleccioná los jugadores del partido
+              <span style={{marginLeft:8,color:"#2979d4"}}>
+                {match.players.filter(p=>p.name).length} seleccionados
               </span>
             </div>
             <PlantelSelector
               equipo={match.equipo}
               selectedPlayers={match.players}
               plantel={plantelJugadores}
-              onToggle={(jugador, slotIdx) => {
+              onToggle={(jugador) => {
                 const players = [...match.players];
                 const yaEsta = players.findIndex(p => p.name === jugador.nombre);
                 if (yaEsta !== -1) {
@@ -837,7 +837,61 @@ export default function App() {
               }}
             />
           </div>
-          <Field label="Notas del cuerpo técnico" style={{marginTop:12}}>
+
+          {/* Estadísticas inline por jugador */}
+          {match.players.filter(p=>p.name).length > 0 && (
+            <div style={{marginTop:20}}>
+              <div style={{fontSize:11,color:"#7a8aaa",textTransform:"uppercase",letterSpacing:1,marginBottom:10}}>
+                Estadísticas de jugadores
+              </div>
+              <div style={{display:"flex",flexDirection:"column",gap:8}}>
+                {match.players.filter(p=>p.name).map(p=>(
+                  <div key={p.id} style={{background:"#0d1120",border:"1px solid #1a2244",borderRadius:10,overflow:"hidden"}}>
+                    <div
+                      style={{display:"flex",alignItems:"center",gap:10,padding:"10px 14px",cursor:"pointer",
+                        background:selPlayer===p.id?"#0d1a3a":"#0d1120"}}
+                      onClick={()=>setSelPlayer(selPlayer===p.id?null:p.id)}
+                    >
+                      <div style={{width:28,height:28,background:"#1a2244",borderRadius:6,display:"flex",alignItems:"center",
+                        justifyContent:"center",fontSize:12,fontWeight:"bold",color:"#2979d4",flexShrink:0}}>{p.id}</div>
+                      <div style={{flex:1}}>
+                        <div style={{fontSize:13,fontWeight:"bold"}}>{p.name}</div>
+                        <div style={{fontSize:11,color:"#4a6a9a"}}>{p.position}</div>
+                      </div>
+                      {calcPts(p)>0 && <div style={{fontSize:13,color:"#f5c842",fontWeight:"bold"}}>{calcPts(p)} pts</div>}
+                      <div style={{color:"#2979d4",fontSize:16}}>{selPlayer===p.id?"▲":"▼"}</div>
+                    </div>
+                    {selPlayer===p.id && (
+                      <div style={{padding:"12px 14px",borderTop:"1px solid #1a2244",background:"#0a0f1a"}}>
+                        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8}}>
+                          {STATS_JUGADOR.map(s=>(
+                            <div key={s.key} style={{background:"#0d1120",borderRadius:8,padding:"10px 12px",border:"1px solid #1a2244"}}>
+                              <div style={{fontSize:11,color:"#4a6a9a",marginBottom:6}}>{s.icon} {s.label}{s.pts>0?<span style={{color:"#f5c842"}}> +{s.pts}pts</span>:""}</div>
+                              <div style={{display:"flex",alignItems:"center",gap:8,justifyContent:"center"}}>
+                                <button style={S.statBtn} onClick={()=>updatePlayer(p.id,s.key,Math.max(0,p[s.key]-1))}>−</button>
+                                <span style={{fontSize:20,fontWeight:"bold",minWidth:28,textAlign:"center"}}>{p[s.key]}</span>
+                                <button style={S.statBtn} onClick={()=>updatePlayer(p.id,s.key,p[s.key]+1)}>+</button>
+                              </div>
+                            </div>
+                          ))}
+                          <div style={{background:"#0d1120",borderRadius:8,padding:"10px 12px",border:"1px solid #1a2244"}}>
+                            <div style={{fontSize:11,color:"#4a6a9a",marginBottom:6}}>⏱ Minutos jugados</div>
+                            <div style={{display:"flex",alignItems:"center",gap:8,justifyContent:"center"}}>
+                              <button style={S.statBtn} onClick={()=>updatePlayer(p.id,"minutesPlayed",Math.max(0,p.minutesPlayed-5))}>−5</button>
+                              <span style={{fontSize:20,fontWeight:"bold",minWidth:36,textAlign:"center"}}>{p.minutesPlayed}'</span>
+                              <button style={S.statBtn} onClick={()=>updatePlayer(p.id,"minutesPlayed",Math.min(80,p.minutesPlayed+5))}>+5</button>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <Field label="Notas del cuerpo técnico" style={{marginTop:16}}>
             <textarea style={{...S.input,minHeight:90,resize:"vertical"}} placeholder="Observaciones generales del partido..." value={match.notes} onChange={e=>updateMatch("notes",e.target.value)}/>
           </Field>
         </div>
@@ -1025,31 +1079,6 @@ export default function App() {
       )}
 
       {section === 2 && (
-        <div style={S.page}>
-          {selPlayer === null ? (
-            <>
-              <div style={S.pageTitle}>Plantel (23 jugadores)</div>
-              <div style={S.playerList}>
-                {match.players.map(p => (
-                  <div key={p.id} style={S.playerRow} onClick={()=>setSelPlayer(p.id)}>
-                    <div style={S.playerNumBadge}>{p.id}</div>
-                    <div style={S.playerRowInfo}>
-                      <input style={S.playerNameInput} placeholder="Nombre del jugador" value={p.name} onClick={e=>e.stopPropagation()} onChange={e=>updatePlayer(p.id,"name",e.target.value)}/>
-                      <span style={S.playerPosLabel}>{p.position}</span>
-                    </div>
-                    {calcPts(p) > 0 && <div style={S.playerPtsBadge}>{calcPts(p)} pts</div>}
-                    <div style={S.playerArrow}>›</div>
-                  </div>
-                ))}
-              </div>
-            </>
-          ) : (
-            <PlayerEditor p={selPlayerData} update={(k,v)=>updatePlayer(selPlayerData.id,k,v)} onBack={()=>setSelPlayer(null)} onPrev={()=>setSelPlayer(v=>Math.max(1,v-1))} onNext={()=>setSelPlayer(v=>Math.min(23,v+1))}/>
-          )}
-        </div>
-      )}
-
-      {section === 3 && (
         <div style={S.page}>
           <div style={S.pageTitle}>Resumen del Partido</div>
           <div style={S.resScorebig}>
