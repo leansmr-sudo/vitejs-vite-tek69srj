@@ -815,7 +815,18 @@ export default function App() {
             <div style={{fontSize:11,color:"#7a8aaa",textTransform:"uppercase",letterSpacing:1,marginBottom:10}}>
               Seleccioná los jugadores del partido
               <span style={{marginLeft:8,color:"#2979d4"}}>
-              {match.players.filter(p=>p.name).length} seleccionados — podés continuar con cualquier cantidad
+              {match.players.filter(p=>p.name).length} seleccionados
+              </span>
+            </div>
+            {match.players.filter(p=>p.name).length > 0 && match.players.filter(p=>p.name).length < 23 && (
+              <div style={{fontSize:11,color:"#f5c842",marginTop:6}}>
+                ✓ Podés continuar con {match.players.filter(p=>p.name).length} jugadores
+              </div>
+            )}
+            {match.players.filter(p=>p.name).length === 0 && (
+              <div style={{fontSize:11,color:"#ff6b6b",marginTop:6}}>
+                Seleccioná al menos un jugador para continuar
+              </div>
               </span>
             </div>
             <PlantelSelector
