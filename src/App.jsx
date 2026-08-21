@@ -395,6 +395,7 @@ export default function App() {
   const [editingId, setEditingId]       = useState(null);
   const [logForm, setLogForm]           = useState({ minuto:"", tiempo:"1T", equipo:"Propio", accion:"Tackle", resultado:"Efectivo", jugador:"", penalizacion:"", tarjeta:"", obs:"" });
   const [sustForm, setSustForm]         = useState({ minuto:"", sale:"", entra:"", tiempo:"1T" });
+  const [equipoConfirmado, setEquipoConfirmado] = useState(false);
   const [showSust, setShowSust]         = useState(false);
   const [selPlayer, setSelPlayer]       = useState(null);
   const [resTab, setResTab]             = useState("total");
@@ -466,7 +467,7 @@ export default function App() {
     } catch(e) { showToast("❌ Error al borrar", "error"); }
   };
 
-  const editMatch = (m) => { setMatch(m); setEditingId(m.firebaseId); setHistoryOpen(false); setSection(0); setSelPlayer(null); };
+  const editMatch = (m) => { setMatch(m); setEditingId(m.firebaseId); setHistoryOpen(false); setSection(0); setSelPlayer(null); setEquipoConfirmado(true); };
 
   const summary       = useMemo(() => buildSummary(match.log),       [match.log]);
   const summary1T     = useMemo(() => buildSummary(match.log,"1T"),  [match.log]);
@@ -745,7 +746,7 @@ export default function App() {
         <button style={S.pill} onClick={() => setPlantelOpen(true)}>👥 Plantel</button>
         <button style={S.pill} onClick={() => setStatsOpen(true)}>📈 Estadísticas</button>
         <button style={S.pill} onClick={() => setHistoryOpen(true)}>Historial ({matches.length})</button>
-        <button style={S.pillGreen} onClick={() => { setMatch(initMatch()); setSection(0); setSelPlayer(null); setEditingId(null); }}>+ Nuevo</button>
+        <button style={S.pillGreen} onClick={() => { setMatch(initMatch()); setSection(0); setSelPlayer(null); setEditingId(null); setEquipoConfirmado(false); }}>+ Nuevo</button>
       </Header>
 
       <div style={S.scoreboard}>
@@ -786,7 +787,10 @@ export default function App() {
 
       <div style={S.nav}>
         {SECTIONS.map((s,i) => (
-          <button key={s} style={{...S.navBtn,...(section===i?S.navBtnActive:{})}} onClick={() => { setSection(i); setSelPlayer(null); }}>{s}</button>
+          <button key={s}
+            style={{...S.navBtn,...(section===i?S.navBtnActive:{}), ...(!equipoConfirmado&&i>0?{opacity:0.4,cursor:"not-allowed"}:{})}}
+            onClick={() => { if(!equipoConfirmado&&i>0) return; setSection(i); setSelPlayer(null); }}>{s}
+          </button>
         ))}
       </div>
 
@@ -815,18 +819,7 @@ export default function App() {
             <div style={{fontSize:11,color:"#7a8aaa",textTransform:"uppercase",letterSpacing:1,marginBottom:10}}>
               Seleccioná los jugadores del partido
               <span style={{marginLeft:8,color:"#2979d4"}}>
-              {match.players.filter(p=>p.name).length} seleccionados
-              </span>
-            </div>
-            {match.players.filter(p=>p.name).length > 0 && match.players.filter(p=>p.name).length < 23 && (
-              <div style={{fontSize:11,color:"#f5c842",marginTop:6}}>
-                ✓ Podés continuar con {match.players.filter(p=>p.name).length} jugadores
-              </div>
-            )}
-            {match.players.filter(p=>p.name).length === 0 && (
-              <div style={{fontSize:11,color:"#ff6b6b",marginTop:6}}>
-                Seleccioná al menos un jugador para continuar
-              </div>
+                {match.players.filter(p=>p.name).length} seleccionados
               </span>
             </div>
             <PlantelSelector
@@ -849,9 +842,27 @@ export default function App() {
             />
           </div>
 
-          {/* Estadísticas inline por jugador */}
-          {match.players.filter(p=>p.name).length > 0 && (
-            <div style={{marginTop:20}}>
+          {/* Botón confirmar equipo */}
+          {!equipoConfirmado && match.players.filter(p=>p.name).length > 0 && (
+            <div style={{marginTop:16}}>
+              <button style={{...S.saveBtn, background:"#2979d4"}}
+                onClick={()=>setEquipoConfirmado(true)}>
+                ✓ Confirmar equipo ({match.players.filter(p=>p.name).length} jugadores — {match.equipo})
+              </button>
+            </div>
+          )}
+
+          {equipoConfirmado && (
+            <div style={{marginTop:12, background:"#0a1628", border:"1px solid #2979d4", borderRadius:8, padding:"10px 14px", display:"flex", alignItems:"center", justifyContent:"space-between"}}>
+              <span style={{fontSize:13, color:"#2979d4"}}>✓ Equipo confirmado — {match.players.filter(p=>p.name).length} jugadores</span>
+              <button style={{...S.segBtn, fontSize:11, padding:"5px 10px", color:"#f5c842"}}
+                onClick={()=>setEquipoConfirmado(false)}>✏️ Modificar</button>
+            </div>
+          )}
+
+          {/* Estadísticas inline - solo si equipo confirmado */}
+          {equipoConfirmado && match.players.filter(p=>p.name).length > 0 && (
+            <div style={{marginTop:16}}>
               <div style={{fontSize:11,color:"#7a8aaa",textTransform:"uppercase",letterSpacing:1,marginBottom:10}}>
                 Estadísticas de jugadores
               </div>
